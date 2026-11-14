@@ -119,6 +119,12 @@ def create_app(db: Any = None, *, routers_package: str = ROUTERS_PACKAGE) -> Fas
                 return False
 
         mongo = the_db is not None and await run_in_threadpool(ping)
+        try:
+            from holdshort import llm as llm_layer
+
+            llm_status = await run_in_threadpool(llm_layer.status)
+        except Exception:  # noqa: BLE001 - health must answer, never raise
+            llm_status = {"provider": "unknown"}
         return {
             "status": "ok" if mongo and not failed else "degraded",
             "mongo": mongo,
@@ -126,6 +132,7 @@ def create_app(db: Any = None, *, routers_package: str = ROUTERS_PACKAGE) -> Fas
             "routers": app.state.routers,
             "routers_failed": failed,
             "voice_enabled": _voice_enabled(),
+            "llm": llm_status,
         }
 
     return app

@@ -21,7 +21,7 @@ when ``LANGSMITH_API_KEY`` is set.
 - gather: ``holdshort.memory.query.brief()`` when that package imports, else ``context``,
   ``objects`` and ``lane_status`` directly; every read goes through
   ``scoped_db(db, "procedures")``.
-- draft: an Anthropic model (``LLM_API_KEY``, ``LLM_MODEL``); without a key, a template.
+- draft: holdshort.llm task 'advisor' (LLM_PROVIDER); with provider none, a template.
 - check: a deterministic guard that rejects any draft granting a new clearance unless it
   is conditional on the conflicting traffic having passed / vacated, and never while
   that traffic still holds a land / takeoff reservation on a lane in conflict. A rejected
@@ -205,21 +205,18 @@ Drafter = Callable[[dict[str, Any]], str | None]
 
 
 def llm_drafter() -> Drafter | None:
-    key = os.environ.get("LLM_API_KEY", "").strip()
-    if not key:
-        return None
-    import anthropic
+    """Drafter backed by holdshort.llm (task "advisor"); None when the provider is "none"."""
+    from holdshort import llm
 
-    client = anthropic.Anthropic(api_key=key)
-    model = os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODEL
+    if llm.provider() == "none":
+        return None
+    timeout_s = float(os.environ.get("LLM_ADVISOR_TIMEOUT_S", "").strip() or 20)
 
     def draft(facts: dict[str, Any]) -> str | None:
         user = (f"Situation: {facts.get('summary')}\nAddress: {spoken_callsign(facts['callsign'])}"
                 f"\nGoal: {'ask them to say again' if facts['kind'] == 'say_again' else 'resume the stopped movement safely'}"  # noqa: E501
                 f"\nTemplate you may improve: {template(facts)}")
-        msg = client.messages.create(model=model, max_tokens=120, system=SYSTEM_PROMPT,
-                                     messages=[{"role": "user", "content": user}])
-        text = "".join(getattr(b, "text", "") for b in msg.content).strip()
+        text = llm.text("advisor", SYSTEM_PROMPT, user, timeout_s)
         return text.splitlines()[0].strip().strip('"') if text else None
 
     return draft

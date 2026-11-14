@@ -59,3 +59,10 @@ def test_db(client):
     clear_cache()
     yield db
     client.drop_database(name)
+
+
+@pytest.fixture(autouse=True)
+def _no_real_llm(monkeypatch):
+    """Unit tests never call a real model: holdshort.llm sees provider "none" unless a
+    test stubs it."""
+    monkeypatch.setenv("LLM_PROVIDER", "none")
