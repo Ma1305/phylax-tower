@@ -102,7 +102,8 @@ All timing lives in `script.json`.
 - Animations inside a scene are keyed to the scene's progress (0..1), so a longer or shorter
   scene stretches or compresses its beats automatically. No component edits needed.
 - Captions are cut from `vo_text` at sentence ends and timed in proportion to their length
-  within the scene. To shift a caption, move words between scenes or adjust the scene bounds.
+  across the spoken window `vo_start_s` .. `vo_end_s` of the scene (the whole scene if those
+  are left out). Set them to where the voice in `vo.wav` actually starts and ends. To shift a caption, move words between scenes or adjust the scene bounds.
 - Beat boundaries inside scenes 4 and 5 are the `BEATS` arrays at the top of
   `src/scenes/Catch.tsx` and `src/scenes/Audit.tsx`, as fractions of the scene, if one beat
   needs more room than the others.

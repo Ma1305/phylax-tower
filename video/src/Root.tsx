@@ -30,10 +30,13 @@ const captionsOf = (s: SceneSpec) => {
     else chunks.push(part);
   }
   const total = chunks.reduce((n, c) => n + c.length, 0);
-  let at = s.start_s;
-  return chunks.map((text) => {
-    const len = ((s.end_s - s.start_s) * text.length) / total;
-    const c = { text, from: at, to: at + len };
+  // captions follow the spoken window when the scene gives one (vo_start_s / vo_end_s), else the whole scene
+  const from = s.vo_start_s ?? s.start_s, to = s.vo_end_s ?? s.end_s;
+  let at = from;
+  return chunks.map((text, i) => {
+    const len = ((to - from) * text.length) / total;
+    const last = i === chunks.length - 1;
+    const c = { text, from: at, to: last ? Math.min(s.end_s, at + len + 0.4) : at + len };
     at += len;
     return c;
   });

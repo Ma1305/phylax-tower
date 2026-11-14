@@ -33,7 +33,7 @@ export const data = dataJson as unknown as {
   open: string[];
 };
 export type SceneSpec = {
-  id: string; start_s: number; end_s: number; vo_text: string;
+  id: string; start_s: number; end_s: number; vo_start_s?: number; vo_end_s?: number; vo_text: string;
   title?: string; tagline?: string; built_on?: string; punchline?: string; cards_note?: string;
   cards?: { time?: string; from: string; to: string; text: string }[];
   news?: { kicker: string; headline: string; subline: string; facts: string[]; source: string };
