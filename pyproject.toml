@@ -9,6 +9,8 @@ dependencies = [
     "anthropic>=0.70",
     "requests>=2.32",
     "pydantic>=2",
+    "fastapi>=0.163.0",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [build-system]
@@ -20,6 +22,7 @@ packages = ["holdshort"]
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=9.2.0",
     "ruff>=0.17.5",
 ]
