@@ -37,11 +37,12 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
   const actor = controller === 'all' ? actAs : controller;
   const rank: Record<string, number> = { critical: 0, warning: 1, caution: 2, info: 3 };
   const list = pending.filter(mine).sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9) || b.t.localeCompare(a.t));
+  const settled = new Set(decisions.flatMap((d) => (d.outcome !== 'pending_approval' ? [d.intent_id] : [])));
+  const lifted = new Set(decisions.map((d) => d.revokes).filter(Boolean));
   const trail = decisions
-    .filter((d) => d.outcome !== 'pending_approval')
     .filter(mine)
     .sort((a, b) => b.t.localeCompare(a.t))
-    .slice(0, 30);
+    .slice(0, 40);
 
   const act = async (d: Decision, approve: boolean) => {
     setBusy(d._id);
@@ -62,7 +63,7 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
       <section className="panel requests">
         <header className="panel-head">
           <h2>
-            Agent requests <span className={`count ${list.length ? 'hot' : ''}`}>{list.length}</span>
+            Awaiting approval <span className={`count ${list.length ? 'hot' : ''}`}>{list.length}</span>
           </h2>
           {controller === 'all' ? (
             <label className="actas">
@@ -82,8 +83,8 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
         <div className="panel-body">
           {list.length === 0 && (
             <div className="empty">
-              No request is waiting{controller === 'all' ? '' : ` for ${selected?.name}`}.
-              <span>Agents can warn, stop or propose. They never clear traffic.</span>
+              Nothing is waiting{controller === 'all' ? '' : ` for ${selected?.name}`}.
+              <span>Only proposed instructions wait here. A stop from an autonomous agent runs at once and is shown at the top; it never waits.</span>
             </div>
           )}
           {list.map((d) => (
@@ -92,19 +93,19 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
                 <span className={`sev sev-${d.severity}`}>
                   {SEV_GLYPH[d.severity]} {d.severity.toUpperCase()}
                 </span>
-                <span className="req-kind">{ACTION[d.intent_action] ?? d.intent_action}</span>
+                <span className="req-kind">{d.intent_action === 'stop' ? 'STOP · NEEDS YOUR APPROVAL' : (ACTION[d.intent_action] ?? d.intent_action)}</span>
                 <span className="mono muted">{hhmmss(d.t)}</span>
               </div>
               <div className="req-call">
                 <span className="cap">Exact call{d.stream_id ? ` · on ${streamName(d.stream_id)}` : ''}</span>
                 <p>“{d.text ?? '(no text)'}”</p>
               </div>
-              {(d.detail || d.reason) && <p className="req-reason">{d.detail ?? d.reason}</p>}
+              {(d.intent?.detail || d.intent?.reason) && <p className="req-reason">{d.intent?.detail ?? d.intent?.reason}</p>}
               <dl className="kv">
                 <dt>Targets</dt>
                 <dd className="mono">{d.target.length ? d.target.join(', ') : 'none'}</dd>
                 <dt>Rule</dt>
-                <dd className="mono">{d.reason ? `${d.reason} · ${d.rule}` : d.rule}</dd>
+                <dd className="mono">{d.intent?.reason ? `${d.intent.reason} · ${d.rule}` : d.rule}</dd>
                 <dt>Lane</dt>
                 <dd>{laneName(d.lane_id)}</dd>
                 <dt>Agent</dt>
@@ -135,33 +136,39 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
 
       <section className="panel audit">
         <header className="panel-head">
-          <h2>Audit trail</h2>
-          <span className="muted small">advisories and decisions, newest first</span>
+          <h2>Decision log</h2>
+          <span className="muted small">every gate decision, newest first</span>
         </header>
         <div className="panel-body">
-          {trail.length === 0 && <div className="empty">Nothing recorded yet.</div>}
+          {trail.length === 0 && <div className="empty">{readOnly ? 'Nothing had been decided at this time.' : 'Nothing decided yet.'}</div>}
           {trail.map((d) => {
-            const outcome = d.intent_action === 'warn' && d.outcome === 'executed' ? 'advisory' : d.outcome;
+            const o = describe(d, settled.has(d.intent_id), lifted.has(d._id));
             return (
-              <article key={d._id} className={`trail out-${outcome}`}>
+              <article key={d._id} className={`trail out-${o.cls}`} data-outcome={d.outcome} data-rule={d.rule}>
                 <div className="trail-top">
                   <span className="mono muted">{hhmmss(d.t)}</span>
-                  <span className={`badge out-${outcome}`}>
-                    {outcome === 'executed' ? '✓ EXECUTED' : outcome === 'advisory' ? '△ ADVISORY' : outcome === 'revoked' ? '✕ REJECTED' : '✕ ' + outcome.toUpperCase()}
+                  <span className={`badge out-${o.cls}`}>{o.label}</span>
+                  <span className="trail-what">
+                    {d.agent} · {(ACTION[d.intent_action] ?? d.intent_action).toLowerCase()}
                   </span>
                   <span className={`sev sev-${d.severity}`}>{d.severity}</span>
-                  <span className="muted small">{d.agent}</span>
                 </div>
                 {d.text && <p className="trail-text">{d.text}</p>}
-                <div className="trail-meta mono">
-                  <span title="rule / gate reason code">rule {d.reason ? `${d.reason} · ` : ''}{d.rule}</span>
-                  <span title="authorized_by: permission and rule set">
-                    auth {d.authorized_by ? `${d.authorized_by.permission_id}/${d.authorized_by.rule_set_version ?? '-'}` : '-'}
-                  </span>
-                  <span title="approved_by">
-                    {outcome === 'revoked' ? 'rejected by' : 'approved by'} {d.approved_by ? ctlName(d.approved_by) : outcome === 'advisory' ? 'not needed' : 'none'}
-                  </span>
-                </div>
+                {o.note && <p className="trail-note">{o.note}</p>}
+                <dl className="trail-meta">
+                  <div title="rule: why the agent raised it, and the gate's reason code">
+                    <dt>rule</dt>
+                    <dd className="mono">{d.intent?.reason ? `${d.intent.reason} · ${d.rule}` : d.rule}</dd>
+                  </div>
+                  <div title="authorized_by: the permission record and rule set version in force">
+                    <dt>authorized by</dt>
+                    <dd className="mono">{d.authorized_by ? `${d.authorized_by.permission_id} / ${d.authorized_by.rule_set_version ?? 'no rule set'}` : 'nothing'}</dd>
+                  </div>
+                  <div title="approved_by: the controller who approved, rejected or lifted it">
+                    <dt>{o.byLabel}</dt>
+                    <dd>{d.approved_by ? ctlName(d.approved_by) : o.noBy}</dd>
+                  </div>
+                </dl>
               </article>
             );
           })}
@@ -169,4 +176,21 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
       </section>
     </>
   );
+}
+
+/** One log line: a text label and glyph per outcome, never colour alone. */
+function describe(d: Decision, settled: boolean, lifted: boolean) {
+  const stop = d.intent_action === 'stop';
+  if (d.outcome === 'pending_approval')
+    return { cls: 'pending', label: settled ? '… ASKED' : '… PENDING', note: settled ? null : 'Waiting for the controller.', byLabel: 'approved by', noBy: settled ? 'see the later entry' : 'nobody yet' };
+  if (d.outcome === 'rejected')
+    return { cls: 'rejected', label: '⊘ REFUSED BY GATE', note: 'Never shown as a request, never spoken.', byLabel: 'approved by', noBy: 'not asked' };
+  if (d.outcome === 'revoked')
+    return d.rule === 'controller_rejected'
+      ? { cls: 'revoked', label: '✕ REJECTED', note: null, byLabel: 'rejected by', noBy: 'unknown' }
+      : { cls: 'revoked', label: stop ? '↺ STOP LIFTED' : '↺ REVOKED', note: null, byLabel: stop ? 'lifted by' : 'revoked by', noBy: 'unknown' };
+  if (d.intent_action === 'warn') return { cls: 'advisory', label: '△ ADVISORY', note: null, byLabel: 'approved by', noBy: 'not needed (advisory)' };
+  if (stop && !d.approved_by)
+    return { cls: 'stop', label: '■ STOP EXECUTED', note: lifted ? 'Later lifted by a controller.' : 'Autonomous: spoken at once, the controller was told.', byLabel: 'approved by', noBy: 'not needed (autonomous)' };
+  return { cls: 'executed', label: '✓ EXECUTED', note: null, byLabel: 'approved by', noBy: 'not needed (autonomous)' };
 }

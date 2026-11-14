@@ -89,7 +89,7 @@ ACCESS = {
 }
 MODES = {
     "listener": ("reactive", "autonomous"),
-    "safety": ("proactive", "needs_approval"),
+    "safety": ("proactive", "autonomous"),
     "procedures": ("proactive", "needs_approval"),
     "weather": ("proactive", "autonomous"),
     "system": ("proactive", "autonomous"),
@@ -565,6 +565,23 @@ def seed(db, end: datetime | None = None) -> dict:
                 "by": "seed",
             }
         )
+    # procedures starts reactive (the gate refuses its proposal at 81 s); the supervisor
+    # makes it proactive at 90 s
+    proc_perm = next(p for p in permissions if p["_id"] == "procedures")
+    proc_perm["mode"] = "reactive"
+    events[[e["ref"] for e in events].index("procedures")]["doc"] = dict(proc_perm)
+    proc_perm.update(mode="proactive", by="ctl_sup", changed_at=at(90))
+    events.append(
+        {
+            "_id": ObjectId(),
+            "t": at(90),
+            "tower_id": TOWER,
+            "kind": "permission",
+            "ref": "procedures",
+            "doc": dict(proc_perm),
+            "by": "ctl_sup",
+        }
+    )
     weather_perm = next(p for p in permissions if p["_id"] == "weather")
     weather_perm.update(tier="needs_approval", by="ctl_sup", changed_at=at(150))
     events.append(
@@ -620,7 +637,8 @@ def seed(db, end: datetime | None = None) -> dict:
             }
         )
 
-    # ---- weather and the agents: an advisory, an approved stop, a proposal still pending
+    # ---- weather and the agents: an advisory, autonomous stops (one lifted), a refused and a
+    # rejected item, a proposal still pending
     weather = [
         {
             "_id": ObjectId(),
@@ -723,12 +741,76 @@ def seed(db, end: datetime | None = None) -> dict:
         "JZ7801 is ready at D; AC8646 is still on the runway.",
     )
     i_stop["conflicts_with"] = "AC8646"
+    # An earlier autonomous stop that Ground lifted, a proposal the gate refused while
+    # procedures was still reactive, and a stop from a needs_approval agent that Ground rejected.
+    i_lift = intent(
+        65,
+        "safety",
+        "stop",
+        "warning",
+        ["OPS7"],
+        "APRON_MAIN",
+        "LGA_OPS",
+        "uncleared_entry",
+        "OPS7, hold position. Person on foot ahead on the apron.",
+        "OPS7 is closing on a person on foot on the main apron.",
+    )
+    i_rej = intent(
+        80,
+        "procedures",
+        "propose_instruction",
+        "info",
+        ["TRUCK1"],
+        "TWY_D",
+        "LGA_OPS",
+        "sequence_crossing",
+        "TRUCK1, expect to cross runway 04 after the landing traffic.",
+        "TRUCK1 is heading for Delta while AC8646 is on final.",
+    )
+    i_pstop = intent(
+        95,
+        "procedures",
+        "stop",
+        "caution",
+        ["JZ7801"],
+        "TWY_B",
+        "LGA_GND",
+        "taxi_spacing",
+        "JZ7801, hold position. Vehicle ahead at Delta.",
+        "JZ7801 is taxiing on B towards Delta where TRUCK1 is about to stop.",
+    )
     d_wx = decision(63, i_wx, "executed", "advisory", "proactive")
-    d_stop = decision(104, i_stop, "pending_approval", "needs_approval", "proactive")
-    d_ok = decision(112, i_stop, "executed", "controller_approved", "proactive", "ctl_local")
+    d_lift = decision(66, i_lift, "executed", "tier_autonomous", "proactive")
+    d_lifted = decision(
+        78, i_lift, "revoked", "controller_revoked", "proactive", "ctl_ground", d_lift["_id"]
+    )
+    d_rej = decision(81, i_rej, "rejected", "mode_reactive", "reactive")
+    d_pstop = decision(96, i_pstop, "pending_approval", "needs_approval", "proactive")
+    d_pstop_no = decision(
+        110, i_pstop, "revoked", "controller_rejected", "proactive", "ctl_ground", d_pstop["_id"]
+    )
+    # The stop of the story: safety is autonomous, so it runs and is spoken at once. The owning
+    # controller is told, not asked, and can lift it (POST /control/revoke).
+    d_stop = decision(104, i_stop, "executed", "tier_autonomous", "proactive")
     d_prop = decision(164, i_prop, "pending_approval", "needs_approval", "proactive")
     add_call(
-        114,
+        67,
+        "LGA_OPS",
+        "HOLDSHORT",
+        "OPS7",
+        "stop",
+        "none",
+        None,
+        None,
+        "APRON_MAIN",
+        i_lift["proposal_text"],
+        "not_applicable",
+        1.0,
+        direction="out",
+        decision_id=d_lift["_id"],
+    )
+    add_call(
+        105,
         "LGA_OPS",
         "HOLDSHORT",
         "TRUCK1",
@@ -741,7 +823,7 @@ def seed(db, end: datetime | None = None) -> dict:
         "not_applicable",
         1.0,
         direction="out",
-        decision_id=d_ok["_id"],
+        decision_id=d_stop["_id"],
     )
 
     db.audio_clips.insert_many(clips)
@@ -752,9 +834,9 @@ def seed(db, end: datetime | None = None) -> dict:
     db.state_events.insert_many(events)
     db.weather.insert_many(weather)
     db.intents_weather.insert_one(i_wx)
-    db.intents_safety.insert_one(i_stop)
-    db.intents_procedures.insert_one(i_prop)
-    db.decisions.insert_many([d_wx, d_stop, d_ok, d_prop])
+    db.intents_safety.insert_many([i_lift, i_stop])
+    db.intents_procedures.insert_many([i_rej, i_pstop, i_prop])
+    db.decisions.insert_many([d_wx, d_lift, d_lifted, d_rej, d_pstop, d_pstop_no, d_stop, d_prop])
     db.sim_runs.insert_one(
         {
             "_id": ObjectId(),
@@ -774,9 +856,11 @@ def seed(db, end: datetime | None = None) -> dict:
         "clips": len(clips),
         "objects": [o["_id"] for o in objects],
         "pending_decision_id": d_prop["_id"],
-        "approved_decision_id": d_ok["_id"],
+        "stop_decision_id": d_stop["_id"],
+        "lifted_stop_decision_id": d_lift["_id"],
+        "rejected_decision_id": d_rej["_id"],
         "advisory_decision_id": d_wx["_id"],
-        "stop_pending_decision_id": d_stop["_id"],
+        "stop_pending_decision_id": d_pstop["_id"],
         "clip_ids": [c["_id"] for c in clips],
     }
 

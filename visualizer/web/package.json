@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "screenshots": "node scripts/screenshots.mjs"
+    "pair": "scripts/run_pair.sh",
+    "screenshots": "scripts/run_pair.sh --shots"
   },
   "dependencies": {
     "react": "^18.3.1",

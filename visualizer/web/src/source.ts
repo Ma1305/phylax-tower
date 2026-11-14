@@ -74,6 +74,7 @@ function createHttpSource(): DataSource {
     },
     approve: (decision_id, controller_id) => post('/control/approve', { decision_id, controller_id }),
     reject: (decision_id, controller_id, reason) => post('/control/reject', { decision_id, controller_id, reason }),
+    revoke: (decision_id, controller_id) => post('/control/revoke', { decision_id, controller_id }),
     setPermission: (agent, patch) => post(`/control/permissions/${agent}`, patch),
   };
 }

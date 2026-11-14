@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react';
-import type { Stream, Transmission, World } from '../types';
+import type { Decision, Stream, Transmission, World } from '../types';
 import { ago, hhmmss } from '../util';
 
 export interface NowPlaying {
@@ -11,6 +11,9 @@ interface Props {
   world: World;
   streams: Stream[]; // already filtered for the selected controller
   transmissions: Transmission[];
+  decisions: Decision[];
+  activeStopIds: Set<string>;
+  loading: boolean;
   solo: string; // 'all' or a stream id
   onSolo: (id: string) => void;
   viewT: number;
@@ -107,12 +110,14 @@ function StreamCard({ s, p, owner }: { s: Stream; p: Props; owner: string }) {
         <span className={`solo-tag ${solo ? 'on' : ''}`}>{solo ? 'SOLO ♪' : muted ? 'silent' : 'solo'}</span>
       </button>
       <div className="lines" ref={body}>
-        {lines.length === 0 && <div className="empty small">No transmissions on this stream yet.</div>}
+        {lines.length === 0 && <div className="empty small">{p.loading ? 'Loading transmissions…' : p.live ? 'No transmissions on this stream yet.' : 'Nothing had been said on this stream at this time.'}</div>}
         {lines.map((t) => {
           const playing = p.nowPlaying?.clipId === t.clip_id;
           const hasAudio = !!t.clip_id && !!t.audio_id;
+          const dec = t.synthetic && t.decision_id ? p.decisions.find((d) => d._id === t.decision_id) : undefined;
+          const src = dec ? { d: dec, stop: dec.intent_action === 'stop', lifted: p.decisions.some((x) => x.revokes === dec._id) } : null;
           return (
-            <div key={t._id} className={`line ${t.synthetic ? 'synthetic' : ''} ${t.verified ? '' : 'unverified'} ${playing ? 'playing' : ''}`}>
+            <div key={t._id} data-clip={t.clip_id ?? ''} className={`line ${t.synthetic ? 'synthetic' : ''} ${t.verified ? '' : 'unverified'} ${playing ? 'playing' : ''}`}>
               {hasAudio ? (
                 <button className="play" onClick={() => p.onPlay(t)} aria-label={`Play ${t.from} to ${t.to}`} title="Play this clip">
                   {playing ? '♪' : '▶'}
@@ -128,7 +133,13 @@ function StreamCard({ s, p, owner }: { s: Stream; p: Props; owner: string }) {
                   <span className="mono who">
                     {t.from} <span className="arrow">→</span> {t.to}
                   </span>
-                  {t.synthetic && <span className="badge syn" title="Spoken by Hold Short after a controller approved it">HOLD SHORT · SYNTHETIC</span>}
+                  {t.synthetic && <span className="badge syn" title="Spoken by Hold Short itself (synthetic voice), not by a person">◆ HOLD SHORT · OUTBOUND</span>}
+                  {src && (
+                    <span className={`badge ${src.stop ? 'syn-stop' : 'syn-ok'}`} title={`decision ${src.d.rule}`}>
+                      {src.stop ? '■ STOP' : 'INSTRUCTION'} · {src.d.approved_by ? `approved by ${p.world.controllers.find((c) => c._id === src.d.approved_by)?.name ?? src.d.approved_by}` : 'autonomous'}
+                      {src.stop && (p.activeStopIds.has(src.d._id) ? ' · in effect' : src.lifted ? ' · lifted' : '')}
+                    </span>
+                  )}
                 </div>
                 <p className="line-text">{t.transcript}</p>
                 <div className="line-tags">

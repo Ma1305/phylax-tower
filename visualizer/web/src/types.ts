@@ -156,8 +156,19 @@ export interface Decision {
   approved_by: string | null;
   revokes?: string | null;
   notified?: string[];
-  // Not in the decisions contract; shown when the API joins them in from the intent.
+  /** The decision's intent, merged in by the API (as in /control/decisions). */
+  intent?: Intent | null;
+}
+
+export interface Intent {
+  action?: string;
+  severity?: Severity;
+  target?: string[];
+  lane_id?: string | null;
+  stream_id?: string | null;
   reason?: string | null;
+  conflicts_with?: string | null;
+  proposal_text?: string | null;
   detail?: string | null;
 }
 
@@ -246,5 +257,7 @@ export interface DataSource {
   live(onMsg: (m: LiveMsg) => void, onStatus: (s: 'open' | 'closed') => void): () => void;
   approve(decisionId: string, controllerId: string): Promise<void>;
   reject(decisionId: string, controllerId: string, reason?: string): Promise<void>;
+  /** Lift an executed stop. */
+  revoke(decisionId: string, controllerId: string): Promise<void>;
   setPermission(agent: PermissionAgent, patch: PermissionPatch): Promise<void>;
 }

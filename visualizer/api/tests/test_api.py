@@ -98,12 +98,29 @@ def test_snapshot_now(api, seeded):
     assert [d["_id"] for d in s["pending"]] == [str(seeded["pending_decision_id"])]
     assert s["pending"][0]["intent"]["action"] == "propose_instruction"
     assert s["pending"][0]["mine"] is True
-    assert len(s["decisions"]) == 4 and len(s["transmissions"]) == 10
+    assert len(s["decisions"]) == 8 and len(s["transmissions"]) == 11
     assert s["weather"]["visibility_sm"] == 2
     perms = {p["_id"]: p for p in s["permissions"]}
     assert len(perms) == 5 and perms["weather"]["tier"] == "needs_approval"
-    approved = next(d for d in s["decisions"] if d["_id"] == str(seeded["approved_decision_id"]))
-    assert approved["approved_by"] == "ctl_local" and approved["intent"]["reason"]
+    by_id = {d["_id"]: d for d in s["decisions"]}
+    # stops are autonomous by default: executed without a controller, and still in effect
+    stop = by_id[str(seeded["stop_decision_id"])]
+    assert stop["outcome"] == "executed" and stop["rule"] == "tier_autonomous"
+    assert stop["approved_by"] is None and stop["intent"]["reason"]
+    assert not any(d["revokes"] == stop["_id"] for d in s["decisions"])
+    spoken = [t for t in s["transmissions"] if t["decision_id"] == stop["_id"]]
+    assert len(spoken) == 1 and spoken[0]["synthetic"] and spoken[0]["from"] == "HOLDSHORT"
+    lifted = [d for d in s["decisions"] if d["revokes"] == str(seeded["lifted_stop_decision_id"])]
+    assert [(d["outcome"], d["rule"], d["approved_by"]) for d in lifted] == [
+        ("revoked", "controller_revoked", "ctl_ground")
+    ]
+    assert by_id[str(seeded["rejected_decision_id"])]["rule"] == "mode_reactive"
+    assert {d["outcome"] for d in s["decisions"]} == {
+        "executed",
+        "pending_approval",
+        "rejected",
+        "revoked",
+    }
 
 
 def test_snapshot_in_the_past_differs(api, seeded):
@@ -125,7 +142,7 @@ def test_snapshot_in_the_past_differs(api, seeded):
     assert then["AC8646"]["position"] != cur["AC8646"]["position"]
     assert then["AC8646"]["lane_id"] is None and cur["AC8646"]["lane_id"] == "RWY_04_22"
 
-    # while the stop waited for the controller, it was the pending item
+    # a stop from a needs_approval agent waits for the controller: then it is the pending item
     mid = get(api, "/viz/snapshot", t=iso(seeded["from"] + timedelta(seconds=108)))
     assert [d["_id"] for d in mid["pending"]] == [str(seeded["stop_pending_decision_id"])]
     # before anything was recorded there is nothing to show
@@ -157,9 +174,9 @@ def test_timeline(api, seeded):
         "marks"
     ]
     kinds = [m["type"] for m in marks]
-    assert kinds.count("transmission") == 10 and kinds.count("run") == 2
-    assert kinds.count("permission") == 6
-    assert kinds.count("alert") + kinds.count("decision") == 4 and "alert" in kinds
+    assert kinds.count("transmission") == 11 and kinds.count("run") == 2
+    assert kinds.count("permission") == 7
+    assert kinds.count("alert") + kinds.count("decision") == 8 and "alert" in kinds
     assert [m["t"] for m in marks] == sorted(m["t"] for m in marks)
     assert all({"t", "type", "stream_id", "severity", "label"} <= set(m) for m in marks)
     early = get(
@@ -181,10 +198,10 @@ def test_stream_clips(api, seeded):
         counts[stream] = len(clips)
         assert all(c["has_audio"] and c["transmission"]["stream_id"] == stream for c in clips)
         assert {"clip_id", "t_start", "t_end", "duration_s", "direction"} <= set(clips[0])
-    assert counts == {"LGA_TWR": 3, "LGA_GND": 3, "LGA_OPS": 4}
+    assert counts == {"LGA_TWR": 3, "LGA_GND": 3, "LGA_OPS": 5}
     ops = get(api, "/viz/streams/LGA_OPS/clips", **args)["clips"]
     spoken = [c for c in ops if c["direction"] == "out"]
-    assert len(spoken) == 1 and spoken[0]["transmission"]["synthetic"] is True
+    assert len(spoken) == 2 and spoken[0]["transmission"]["synthetic"] is True
     assert get(api, "/viz/streams/NOPE/clips", **args)["clips"] == []
 
 
@@ -265,7 +282,7 @@ def test_live_snapshot_then_change(api, mongo, seeded):
         assert msg["doc"]["_id"] == str(tx_id) and msg["doc"]["t"].endswith("Z")
 
         # a decision arrives with its intent merged in
-        intent = db.intents_safety.find_one()
+        intent = db.intents_safety.find_one({"reason": "no_crossing_during_active_landing"})
         dec_id = db.decisions.insert_one(
             {
                 "t": datetime.now(UTC),
@@ -283,7 +300,7 @@ def test_live_snapshot_then_change(api, mongo, seeded):
                 "target": [],
                 "mode": "proactive",
                 "approved_by": None,
-                "revokes": seeded["approved_decision_id"],
+                "revokes": seeded["stop_decision_id"],
                 "notified": [],
             }
         ).inserted_id

@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Agents } from './components/Agents';
 import { MapView } from './components/MapView';
 import { Requests } from './components/Requests';
+import { StopAlerts } from './components/StopAlerts';
 import { Streams, type NowPlaying } from './components/Streams';
 import { Timeline } from './components/Timeline';
 import { lerp, lerpAngle } from './geo';
 import { createSource, VIZ_API } from './source';
 import type { Clip, Decision, LiveMsg, Mark, ObjectDoc, Snapshot, Tracks, Transmission, World } from './types';
-import { ago, hhmmss } from './util';
+import { activeStops, ago, hhmmss } from './util';
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const byId = <T extends { _id: string }>(list: T[], doc: T) => [...list.filter((x) => x._id !== doc._id), doc];
@@ -322,7 +323,10 @@ export default function App() {
   }, [streams, solo, silence]);
 
   const pendingShown = useMemo(() => (snap?.pending ?? []).filter((d) => seesAll || d.controller_id === controller), [snap, seesAll, controller]);
-  const flagged = useMemo(() => new Set(pendingShown.flatMap((d) => d.target)), [pendingShown]);
+  const stopT = live ? Math.floor(now / 5000) * 5000 : playhead;
+  const stopsAll = useMemo(() => activeStops(snap?.decisions ?? [], stopT), [snap, stopT]);
+  const stopsShown = useMemo(() => stopsAll.filter((d) => seesAll || d.controller_id === controller), [stopsAll, seesAll, controller]);
+  const flagged = useMemo(() => new Set([...pendingShown, ...stopsShown].flatMap((d) => d.target)), [pendingShown, stopsShown]);
 
   if (!world) {
     return (
@@ -367,10 +371,20 @@ export default function App() {
             </button>
             {world.controllers.map((c) => {
               const n = (snap?.pending ?? []).filter((d) => d.controller_id === c._id).length;
+              const st = stopsAll.filter((d) => d.controller_id === c._id).length;
               return (
                 <button key={c._id} className={controller === c._id ? 'on' : ''} onClick={() => setController(c._id)} title={c.role === 'supervisor' ? 'Supervisor: sees and may act on everything' : `${c.lanes.length} lanes, ${c.streams.length} streams`}>
                   {c.name}
-                  {n > 0 && <span className="count hot">{n}</span>}
+                  {st > 0 && (
+                    <span className="count stopct" title={`${st} stop in effect on their lanes`}>
+                      ■ {st}
+                    </span>
+                  )}
+                  {n > 0 && (
+                    <span className="count hot" title={`${n} waiting for approval`}>
+                      {n}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -405,6 +419,8 @@ export default function App() {
         </div>
       )}
 
+      <StopAlerts ds={ds} world={world} stops={stopsShown} transmissions={snap?.transmissions ?? []} actor={actor} viewT={viewT} readOnly={!live} />
+
       <main className="main">
         <section className="map-wrap">
           <MapView world={world} objects={objects} laneStatus={snap?.lane_status ?? []} ownedLanes={ownedLanes} flagged={flagged} smooth={live} />
@@ -423,6 +439,9 @@ export default function App() {
           world={world}
           streams={streams}
           transmissions={snap?.transmissions ?? []}
+          decisions={snap?.decisions ?? []}
+          activeStopIds={new Set(stopsAll.map((d) => d._id))}
+          loading={!snap}
           solo={solo}
           onSolo={(id) => {
             silence();

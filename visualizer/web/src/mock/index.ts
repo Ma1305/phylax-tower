@@ -23,6 +23,7 @@ import {
   type Severity,
   type Snapshot,
   type Tracks,
+  type Intent,
   type Transmission,
   type World,
 } from '../types';
@@ -74,6 +75,7 @@ interface Run {
   label: string;
 }
 type MockDecision = Decision & { autoFor?: string };
+type NewDecision = Partial<MockDecision> & { agent: string; intent_action: string; reason?: string | null; detail?: string | null };
 
 export function createMockSource(): DataSource {
   const world = buildWorld();
@@ -98,7 +100,7 @@ export function createMockSource(): DataSource {
       doc: { _id: agent, agent, enabled: true, mode, tier, by: 'seed', changed_at: iso(T0) },
     });
   seedPerm('listener', 'reactive', 'autonomous');
-  seedPerm('safety', 'proactive', 'needs_approval');
+  seedPerm('safety', 'proactive', 'autonomous');
   seedPerm('procedures', 'proactive', 'needs_approval');
   seedPerm('weather', 'proactive', 'autonomous');
   seedPerm('system', 'proactive', 'needs_approval');
@@ -153,7 +155,7 @@ export function createMockSource(): DataSource {
     return tx;
   }
 
-  function addDecision(tMs: number, d: Partial<MockDecision> & { agent: string; intent_action: string }) {
+  function addDecision(tMs: number, d: NewDecision) {
     const id = `dec_${++seq}`;
     const lane_id = d.lane_id ?? null;
     const doc: MockDecision = {
@@ -175,8 +177,10 @@ export function createMockSource(): DataSource {
       approved_by: d.approved_by ?? null,
       revokes: d.revokes ?? null,
       notified: [],
-      reason: d.reason ?? null,
-      detail: d.detail ?? null,
+      intent: d.intent ?? ({
+        action: d.intent_action, severity: d.severity ?? 'info', target: d.target ?? [], lane_id, stream_id: d.stream_id ?? null,
+        reason: d.reason ?? null, proposal_text: d.text ?? null, detail: d.detail ?? null,
+      } as Intent),
       autoFor: d.autoFor,
     };
     decisions.push(doc);
@@ -247,7 +251,7 @@ export function createMockSource(): DataSource {
     });
     const a1 = addDecision(at(72), {
       ...p1, _id: undefined, outcome: 'executed', rule: 'controller_approved', approved_by: 'ctl_ground',
-    } as Partial<MockDecision> & { agent: string; intent_action: string });
+    } as NewDecision);
     addTx(at(74), 'LGA_OPS', 'HOLDSHORT', 'TRUCK1', p1.text!, {
       kind: 'clearance', instruction: 'hold_short', runway: '04', at: 'D', lane_id: 'TWY_D', confidence: 1,
       synthetic: true, decision_id: a1._id,
@@ -263,6 +267,18 @@ export function createMockSource(): DataSource {
       agent: 'weather', intent_action: 'warn', severity: 'info', controller_id: 'ctl_sup',
       reason: 'weather_update', text: 'Visibility 6 SM, wind 040 at 8. Standard rule set stays active.',
     });
+    // A stop from an agent whose tier is needs_approval waits for the controller.
+    addDecision(at(132), {
+      agent: 'procedures', intent_action: 'stop', severity: 'caution', outcome: 'pending_approval', rule: 'needs_approval',
+      lane_id: 'TWY_B', stream_id: 'LGA_GND', target: ['AC2210'], reason: 'taxi_spacing',
+      text: 'AC2210, hold position.',
+      detail: 'AC2210 is approaching the runway 04 hold line while AC8646 is on final.',
+    });
+    addDecision(at(140), {
+      agent: 'weather', intent_action: 'set_rule_set', severity: 'info', outcome: 'rejected', rule: 'no_permission',
+      controller_id: 'ctl_sup', reason: 'weather_update', text: 'low_vis_v1',
+      detail: 'Weather asked to switch the rule set; it has no permission to do so.',
+    });
     addTx(at(160), 'LGA_OPS', 'UNKNOWN', 'OPS', '... crossing ...', {
       kind: 'other', confidence: 0.41, flag: 'no callsign', audio: false, dur: 1.5,
     });
@@ -273,19 +289,29 @@ export function createMockSource(): DataSource {
       text: 'TRUCK1 is on runway 04 at Delta. AC8646 is cleared to land, 1 nm final.',
       detail: 'A vehicle with no crossing clearance is on a runway reserved for landing.',
     });
-    addDecision(at(170), {
-      agent: 'safety', intent_action: 'stop', severity: 'critical', outcome: 'pending_approval', rule: 'needs_approval',
+    // Safety is autonomous: the stop runs and is spoken at once. The controller is told, not asked.
+    const stop = addDecision(at(170), {
+      agent: 'safety', intent_action: 'stop', severity: 'critical', outcome: 'executed', rule: 'tier_autonomous',
       lane_id: 'RWY_04_22', stream_id: 'LGA_TWR', target: ['AC8646'], reason: 'runway_incursion',
       text: 'AC8646, go around. Vehicle on the runway.',
       detail: 'TRUCK1 entered runway 04 at Delta without a clearance while AC8646 is on short final.',
     });
+    addTx(at(171), 'LGA_TWR', 'HOLDSHORT', 'AC8646', stop.text!, {
+      kind: 'stop', instruction: 'go_around', runway: '04', lane_id: 'RWY_04_22', confidence: 1,
+      synthetic: true, decision_id: stop._id,
+    });
+    // The controller lifts it once the runway is clear (hidden if you lift it yourself).
+    addDecision(at(212), {
+      ...stop, _id: undefined, outcome: 'revoked', rule: 'controller_revoked', revokes: stop._id,
+      approved_by: stop.controller_id, autoFor: stop.intent_id,
+    } as NewDecision);
     addDecision(at(174), {
       agent: 'procedures', intent_action: 'propose_instruction', severity: 'warning', outcome: 'pending_approval',
       rule: 'needs_approval', lane_id: 'TWY_D', stream_id: 'LGA_OPS', target: ['TRUCK1'], reason: 'uncleared_entry',
       text: 'Truck 1, vacate runway 04 immediately via Delta.',
       detail: 'TRUCK1 was told to hold short at Delta and has no crossing clearance.',
     });
-    addTx(at(188), 'LGA_TWR', 'TOWER', 'AC8646', 'AC8646, go around, vehicle on the runway.', {
+    addTx(at(188), 'LGA_TWR', 'TOWER', 'AC8646', 'AC8646, Tower, confirm going around. Fly runway heading.', {
       kind: 'clearance', instruction: 'go_around', runway: '04', lane_id: 'RWY_04_22', confidence: 0.97,
     });
     addLane(at(190), 'RWY_04_22', 'occupied', ['TRUCK1']);
@@ -300,11 +326,11 @@ export function createMockSource(): DataSource {
     });
     addLane(at(206), 'RWY_04_22', 'clear');
     // Requests nobody answered are closed by the controller once the runway is clear.
-    for (const p of decisions.filter((d) => d.outcome === 'pending_approval' && Date.parse(d.t) >= at(160))) {
+    for (const p of decisions.filter((d) => d.outcome === 'pending_approval' && Date.parse(d.t) >= at(120) && Date.parse(d.t) < at(215))) {
       addDecision(at(215), {
         ...p, _id: undefined, outcome: 'revoked', rule: 'controller_rejected', revokes: p._id,
         approved_by: p.controller_id, autoFor: p.intent_id,
-      } as Partial<MockDecision> & { agent: string; intent_action: string });
+      } as NewDecision);
     }
   }
 
@@ -477,7 +503,7 @@ export function createMockSource(): DataSource {
       outcome: approve ? 'executed' : 'revoked',
       rule: approve ? 'controller_approved' : 'controller_rejected',
       approved_by: controllerId, revokes: approve ? null : d._id,
-    } as Partial<MockDecision> & { agent: string; intent_action: string });
+    } as NewDecision);
     if (approve && d.text && d.stream_id) {
       addTx(now + 1500, d.stream_id, 'HOLDSHORT', d.target[0] ?? 'ALL', d.text, {
         kind: d.intent_action === 'stop' ? 'stop' : 'clearance', lane_id: d.lane_id, confidence: 1,
@@ -561,6 +587,21 @@ export function createMockSource(): DataSource {
     },
     async reject(id, by) {
       decide(id, by, false);
+    },
+    async revoke(id, by) {
+      const now = Date.now();
+      ensure(now);
+      const d = decisions.find((x) => x._id === id);
+      if (!d) throw new ApiError(404, 'unknown decision');
+      const ctl = world.controllers.find((c) => c._id === by);
+      if (!ctl) throw new ApiError(400, 'unknown controller');
+      if (d.outcome !== 'executed') throw new ApiError(400, 'only an executed decision can be revoked');
+      if (visibleDecisions().some((x) => x.revokes === id && Date.parse(x.t) <= now)) throw new ApiError(409, 'already revoked');
+      if (ctl.role !== 'supervisor' && d.controller_id !== by) {
+        throw new ApiError(403, `not_lane_owner: ${ctl.name} does not own ${d.lane_id ?? 'this lane'}; it is routed to ${d.controller_id}`);
+      }
+      acted.add(d.intent_id);
+      addDecision(now + 1, { ...d, _id: undefined, autoFor: undefined, outcome: 'revoked', rule: 'controller_revoked', approved_by: by, revokes: d._id } as NewDecision);
     },
     async setPermission(agent: PermissionAgent, patch: PermissionPatch) {
       const now = Date.now();

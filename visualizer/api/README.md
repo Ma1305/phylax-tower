@@ -70,8 +70,11 @@ MONGODB_DB=holdshort_v2_demo uv run uvicorn app:app --port 18100
 Writes a three-minute history ending now: the world from `docs/v2/world_lga.json` (lane `area`
 polygons built from centerline + width), six moving objects (two aircraft, two vehicles, a
 person, an unidentified target), ten clips on three streams with generated tones as audio, lane
-status changes with their `state_events`, a weather advisory, a stop that the local controller
-approved (with the spoken outbound call) and a proposal that is still pending. The collections
+status changes with their `state_events`, a weather advisory and every decision outcome: an
+autonomous safety stop that is in effect (`tier_autonomous`, spoken at once as a `HOLDSHORT`
+outbound call), an earlier one a controller lifted (`controller_revoked`), a proposal the gate
+refused (`mode_reactive`), a stop from a `needs_approval` agent that waited and was rejected
+(`controller_rejected`) and a proposal that is still pending. The collections
 it writes are emptied first. It creates no TTL index, so the six objects stay for the web app.
 
 ## Tests
