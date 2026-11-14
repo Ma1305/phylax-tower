@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Decision, Stream, Transmission, World } from '../types';
 import { hhmmss, stationName } from '../util';
 
@@ -22,6 +22,8 @@ interface Props {
   onPlay: (tx: Transmission) => void;
   onEnded: () => void;
   emptyNote: string | null;
+  /** Drive the bars from a WebAudio analyser. Only safe when the clips are same-origin (mock mode): a cross-origin clip without CORS headers would play silent through WebAudio. */
+  analyse?: boolean;
 }
 
 function badge(t: Transmission, decisions: Decision[]): { text: string; tone: string } {
@@ -74,6 +76,53 @@ export function Radio(p: Props) {
       for (const ev of ['play', 'playing', 'pause', 'ended', 'emptied']) a.removeEventListener(ev, sync);
     };
   }, [p.audioRef]);
+  // Real levels: an AnalyserNode on the audio element moves the bars of the dock and the playing card.
+  const root = useRef<HTMLElement>(null);
+  const [analysing, setAnalysing] = useState(false);
+  useEffect(() => {
+    const a = p.audioRef.current;
+    if (!a || !p.analyse || typeof AudioContext === 'undefined') return;
+    let ctx: AudioContext | null = null;
+    let an: AnalyserNode | null = null;
+    let raf = 0;
+    const draw = () => {
+      raf = requestAnimationFrame(draw);
+      if (!an || !root.current || a.paused) return;
+      const data = new Uint8Array(an.fftSize);
+      an.getByteTimeDomainData(data);
+      root.current.querySelectorAll<HTMLElement>('.wave.active').forEach((w) => {
+        const bars = w.children;
+        const step = Math.floor(data.length / bars.length);
+        for (let i = 0; i < bars.length; i++) {
+          let peak = 0;
+          for (let k = 0; k < step; k++) peak = Math.max(peak, Math.abs(data[i * step + k] - 128));
+          (bars[i] as HTMLElement).style.transform = `scaleY(${(0.15 + Math.min(1, peak / 70)).toFixed(2)})`;
+        }
+      });
+    };
+    const start = () => {
+      try {
+        if (!ctx) {
+          ctx = new AudioContext();
+          an = ctx.createAnalyser();
+          an.fftSize = 512;
+          ctx.createMediaElementSource(a).connect(an);
+          an.connect(ctx.destination);
+          setAnalysing(true);
+          raf = requestAnimationFrame(draw);
+        }
+        void ctx.resume();
+      } catch {
+        setAnalysing(false);
+      }
+    };
+    a.addEventListener('play', start);
+    return () => {
+      a.removeEventListener('play', start);
+      cancelAnimationFrame(raf);
+      void ctx?.close();
+    };
+  }, [p.audioRef, p.analyse]);
   const toggle = () => {
     const a = p.audioRef.current;
     if (!a) return;
@@ -87,7 +136,7 @@ export function Radio(p: Props) {
   };
   const soloStream = p.streams.find((s) => s._id === p.solo);
   return (
-    <section className="radio">
+    <section className={`radio ${analysing ? 'analysing' : ''}`} ref={root}>
       <header className="sec-head">
         <h2>Radio</h2>
         <div className="tabs" role="group" aria-label="Listen to">

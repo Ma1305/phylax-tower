@@ -469,6 +469,7 @@ export default function App() {
             }}
             onEnded={onEnded}
             emptyNote={selected ? `${selected.name} owns no radio stream.` : null}
+            analyse={ds.mock}
           />
           <NeedsYou
             ds={ds}

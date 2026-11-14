@@ -388,3 +388,6 @@ select { background: var(--card); border: 1px solid var(--line); border-radius: 
   .topbar .seg button { font-size: 13.5px; }
   .clock { font-size: 24px; }
 }
+
+.radio.analysing .wave.active i { animation: none; transition: transform 0.06s linear; }
+.wave:not(.active) i { transform: none !important; }
