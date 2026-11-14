@@ -19,6 +19,15 @@ interface Props {
   onSeek: (deltaMs: number) => void;
   onStep: (dir: -1 | 1) => void;
   onSpeed: (s: number) => void;
+  /** Highlights run: which one is showing. */
+  hl: { i: number; n: number; label: string } | null;
+  hlCount: number;
+  onHighlights: () => void;
+  onHlStep: (dir: -1 | 1) => void;
+  onHlExit: () => void;
+  skip: boolean;
+  onSkip: (v: boolean) => void;
+  toast: string;
   children?: ReactNode;
 }
 
@@ -123,24 +132,48 @@ export function Timeline(p: Props) {
           </button>
         )}
         <span className="tl-state">{p.live ? 'live' : `${ago(p.to - p.playhead)} behind${p.playing ? '' : ' · paused'}`}</span>
-        {!p.live && !p.playing && (
-          <button className="btn" onClick={p.onToggle}>
-            Play from here
-          </button>
+        {p.toast && <span className="tl-toast">{p.toast}</span>}
+        {p.hl ? (
+          <div className="hl-bar" role="status">
+            <button className="btn" onClick={() => p.onHlStep(-1)} aria-label="Previous highlight" title="Previous highlight">
+              ‹
+            </button>
+            <span className="hl-text">
+              <b>
+                Highlight {p.hl.i + 1} of {p.hl.n}
+              </b>{' '}
+              · {p.hl.label}
+            </span>
+            <button className="btn" onClick={() => p.onHlStep(1)} aria-label="Next highlight" title="Next highlight">
+              ›
+            </button>
+            <button className="btn" onClick={p.onHlExit} title="Leave highlights (Esc)">
+              Exit
+            </button>
+          </div>
+        ) : (
+          <>
+            <button className="btn" onClick={p.onHighlights} disabled={p.hlCount === 0} title={p.hlCount ? `Play only the ${p.hlCount} major events of this window` : 'No major event in this window'}>
+              Highlights
+            </button>
+            <button className={`btn skip ${p.skip ? 'on' : ''}`} role="switch" aria-checked={p.skip} onClick={() => p.onSkip(!p.skip)} title="While playing history, jump over stretches longer than 4 s with nothing happening">
+              <i className="dot" /> Skip quiet gaps
+            </button>
+            <Menu label="Playback speed" up value={p.speed} onChange={p.onSpeed} options={[1, 4, 16].map((s) => ({ value: s, label: `${s}x` }))} />
+            <Menu
+              label="Timeline window"
+              up
+              value={p.win}
+              onChange={p.onWin}
+              options={[
+                { value: 5, label: 'Last 5 min' },
+                { value: 15, label: 'Last 15 min' },
+                { value: 60, label: 'Last hour' },
+                { value: 0, label: 'Everything' },
+              ]}
+            />
+          </>
         )}
-        <Menu label="Playback speed" up value={p.speed} onChange={p.onSpeed} options={[1, 4, 16].map((s) => ({ value: s, label: `${s}x` }))} />
-        <Menu
-          label="Timeline window"
-          up
-          value={p.win}
-          onChange={p.onWin}
-          options={[
-            { value: 5, label: 'Last 5 min' },
-            { value: 15, label: 'Last 15 min' },
-            { value: 60, label: 'Last hour' },
-            { value: 0, label: 'Everything' },
-          ]}
-        />
         <button className={`live-btn ${p.live ? 'on' : ''}`} onClick={p.onLive} title="Return to the live picture (L)">
           <span className="dot" /> LIVE
         </button>

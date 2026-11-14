@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapView } from './components/MapView';
+import { StreamDock } from './components/StreamDock';
 import { Menu } from './components/Menu';
 import { Requests } from './components/Requests';
 import { agentSummary, AgentSettings } from './components/AgentPills';
@@ -115,6 +116,11 @@ export default function App() {
   const [histClips, setHistClips] = useState<Clip[]>([]);
   const [drawer, setDrawer] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [openTx, setOpenTx] = useState<string | null>(null);
+  const [needsH, setNeedsH] = useState<number | null>(null);
+  const [hl, setHl] = useState<number | null>(null);
+  const [skipGaps, setSkipGaps] = useState(false);
+  const [toast, setToast] = useState('');
   const [sideHidden, setSideHidden] = useStored('side.hidden');
   const [dbEvent, setDbEvent] = useState<{ n: number; coll: string; json: string; t: string; at: number } | null>(null);
 
@@ -266,6 +272,68 @@ export default function App() {
     const anchor = Date.parse((runs.length ? runs[runs.length - 1] : marks[marks.length - 1]).t) - 15_000;
     setWin([5, 15, 60].find((m) => Date.now() - m * 60_000 <= anchor) ?? 0);
   }, [marks]);
+  // ---- highlights: only the major events of the window, each from 3 s before to 4 s after ----
+  const highlights = useMemo(() => {
+    const out: { t: number; label: string }[] = [];
+    for (const m of marks.filter(isMajor).sort((a, b) => a.t.localeCompare(b.t))) {
+      const t = Date.parse(m.t);
+      if (out.length && t - out[out.length - 1].t < 6000) continue; // one stop for events that happen together
+      const l = m.label;
+      const what = m.type === 'run' ? 'Simulator run start' : /stop \(executed/.test(l) ? 'Stop issued' : /stop \(pending/.test(l) ? 'Stop proposed' : /\(pending/.test(l) ? 'Proposal' : /propose\w* \(executed/.test(l) ? 'Proposal approved' : /\(revoked/.test(l) ? 'Lifted or rejected' : /\(rejected/.test(l) ? 'Refused by the gate' : m.type === 'alert' ? 'Conflict' : 'Decision';
+      const detail = l.includes(':') ? l.slice(l.indexOf(':') + 1).trim() : '';
+      out.push({ t, label: detail && m.type !== 'run' ? `${what} · ${detail.length > 34 ? detail.slice(0, 33) + '…' : detail}` : what });
+    }
+    return out;
+  }, [marks]);
+  const hlList = useRef<{ t: number; label: string }[]>([]);
+  const startHl = (i: number) => {
+    const list = hlList.current;
+    if (!list[i]) {
+      setHl(null);
+      setPlaying(false);
+      return;
+    }
+    setSpeed(1);
+    setHl(i);
+    scrub(list[i].t - 3000, true);
+  };
+  useEffect(() => {
+    if (hl == null || mode !== 'history' || !playing) return;
+    const cur = hlList.current[hl];
+    if (cur && playhead >= cur.t + 4000) startHl(hl + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playhead, hl, mode, playing]);
+  useEffect(() => {
+    if (mode === 'live' && hl != null) setHl(null);
+  }, [mode, hl]);
+  // the audio of the clips in a highlight's span (every stream, not only the one being listened to)
+  const hlHead = useRef(playhead);
+  useEffect(() => {
+    const prev = hlHead.current;
+    hlHead.current = playhead;
+    if (hl == null || mode !== 'history' || !playing || playhead <= prev || playhead - prev > 2000 || solo !== 'all') return;
+    for (const t of liveSnap?.transmissions ?? []) {
+      const t0 = Date.parse(t.t);
+      if (t.clip_id && t.audio_id && t0 > prev && t0 <= playhead) enqueue({ clipId: t.clip_id, label: txLabel(t) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playhead]);
+  // ---- skip quiet gaps: in history playback, jump over stretches with no call, decision or alert ----
+  const eventTimes = useMemo(() => marks.filter((m) => m.type !== 'permission').map((m) => Date.parse(m.t)).sort((a, b) => a - b), [marks]);
+  useEffect(() => {
+    if (!skipGaps || hl != null || mode !== 'history' || !playing) return;
+    const next = eventTimes.find((t) => t > playhead);
+    let last = -Infinity;
+    for (const t of eventTimes) if (t <= playhead) last = t;
+    if (playhead - last < 3000) return; // let the last event (and its audio) finish
+    const target = next != null ? next - 1000 : Date.now() - 1500;
+    if (target - playhead <= 4000) return;
+    const gap = Math.round((target - playhead) / 1000);
+    setToast(`skipped ${String(Math.floor(gap / 60)).padStart(2, '0')}:${String(gap % 60).padStart(2, '0')}`);
+    window.setTimeout(() => setToast(''), 2500);
+    scrub(target, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playhead, skipGaps, hl, mode, playing]);
   const keyRef = useRef<(e: KeyboardEvent) => void>();
   useEffect(() => {
     const h = (e: KeyboardEvent) => keyRef.current?.(e);
@@ -392,6 +460,8 @@ export default function App() {
   const actor = controller === 'all' ? actAs : controller;
   const tlFrom = Math.max(from ?? now - 60_000, win ? now - win * 60_000 : 0);
   const cur = live ? Date.now() : playhead;
+  const hlInWin = highlights.filter((h) => h.t >= tlFrom);
+  hlList.current = hlInWin;
   const togglePlay = () => (live ? scrub(Date.now() - 1000, false) : setPlaying(!playing));
   const seek = (delta: number) => (cur + delta >= Date.now() - 600 ? goLive() : scrub(cur + delta, playing && !live));
   const stepEvent = (dir: -1 | 1) => {
@@ -406,7 +476,8 @@ export default function App() {
     if (e.metaKey || e.ctrlKey || e.altKey || (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable || el.closest('.menu.open')))) return;
     if (e.key === ' ' && el && el.tagName === 'BUTTON') return; // the focused button takes the space bar
     const views = ['all', ...world.controllers.map((c) => c._id)];
-    if (e.key === ' ') togglePlay();
+    if (e.key === 'Escape' && hl != null) setHl(null);
+    else if (e.key === ' ') togglePlay();
     else if (e.key === 'ArrowLeft') e.shiftKey ? stepEvent(-1) : seek(-5000);
     else if (e.key === 'ArrowRight') e.shiftKey ? stepEvent(1) : live ? undefined : seek(5000);
     else if (e.key === 'l' || e.key === 'L') goLive();
@@ -522,7 +593,7 @@ export default function App() {
             <span className="rail-cap">Radio</span>
           </aside>
         )}
-        <aside className={`side ${sideHidden ? 'hidden' : ''}`}>
+        <aside className={`side ${sideHidden ? 'hidden' : ''} ${needsH != null ? 'sized' : ''}`} style={needsH != null ? ({ '--needs-h': `${needsH}px` } as React.CSSProperties) : undefined}>
           <NeedsYou
             ds={ds}
             world={world}
@@ -534,6 +605,19 @@ export default function App() {
             showActAs={controller === 'all'}
             onActAs={setActAs}
             readOnly={!live}
+          />
+          <div
+            className="side-split"
+            role="separator"
+            aria-label="Resize Needs you"
+            title="Drag to resize"
+            onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+            onPointerMove={(e) => {
+              if (!(e.buttons & 1)) return;
+              const r = e.currentTarget.parentElement!.getBoundingClientRect();
+              setNeedsH(Math.max(44, Math.min(r.height - 160, e.clientY - r.top)));
+            }}
+            onDoubleClick={() => setNeedsH(null)}
           />
           <Radio
             world={world}
@@ -559,12 +643,37 @@ export default function App() {
             }}
             onEnded={onEnded}
             emptyNote={selected ? `${selected.name} owns no radio stream.` : null}
+            open={openTx}
+            onOpen={setOpenTx}
           />
         </aside>
       </main>
 
+      <StreamDock
+        world={world}
+        streams={streams}
+        transmissions={snap?.transmissions ?? []}
+        decisions={snap?.decisions ?? []}
+        from={tlFrom}
+        to={now}
+        cur={viewT}
+        live={live}
+        mock={ds.mock}
+        audioUrl={ds.audioUrl}
+        nowPlaying={nowPlaying}
+        solo={solo}
+        onSolo={(id) => {
+          silence();
+          setSolo(id);
+        }}
+        onPick={(t) => {
+          setOpenTx(t._id);
+          queue.current = [];
+          if (t.clip_id && t.audio_id) startClip({ clipId: t.clip_id, label: txLabel(t) });
+        }}
+      />
       <footer className="bottom">
-        <Timeline from={tlFrom} to={now} playhead={playhead} live={live} playing={playing} speed={speed} marks={marks} win={win} onWin={setWin} onScrub={scrub} onLive={goLive} onToggle={togglePlay} onSeek={seek} onStep={stepEvent} onSpeed={setSpeed}>
+        <Timeline from={tlFrom} to={now} playhead={playhead} live={live} playing={playing} speed={speed} marks={marks} win={win} onWin={setWin} onScrub={scrub} onLive={goLive} onToggle={togglePlay} onSeek={seek} onStep={stepEvent} onSpeed={setSpeed} hl={hl != null && hlInWin[hl] ? { i: hl, n: hlInWin.length, label: hlInWin[hl].label } : null} hlCount={hlInWin.length} onHighlights={() => startHl(0)} onHlStep={(d) => startHl(Math.max(0, (hl ?? 0) + d))} onHlExit={() => setHl(null)} skip={skipGaps} onSkip={setSkipGaps} toast={toast}>
           <div className="dbstrip">
             <div className="db-title">
               <b>
