@@ -2,10 +2,10 @@
   "config": {
     "product_name": "Phylax Tower",
     "team_names": [
-      "[NAME 1]",
-      "[NAME 2]",
-      "[NAME 3]",
-      "[NAME 4]"
+      "Mani",
+      "Ariyan",
+      "Sahand",
+      "Amirali"
     ],
     "repo_url": "github.com/Ma1305/plane-management",
     "demo_url": "[DEMO URL]",

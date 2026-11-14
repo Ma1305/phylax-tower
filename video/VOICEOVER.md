@@ -1,7 +1,7 @@
 # Phylax Tower: voiceover script
 
 Read this for `vo.wav`. Each block must fit its time window; the captions are cut from the same text
-(`video/script.json`, `vo_text`). Replace the name placeholders in `script.json` `config.team_names` first.
+(`video/script.json`, `vo_text`).
 Total: 59.5 s. Record one continuous take from 0:00, save as `video/assets/vo.wav`, then `npm run render`.
 
 ## 1. incident · 0:00 to 0:10 (10 s, 28 words)
@@ -10,7 +10,7 @@ Total: 59.5 s. Record one continuous take from 0:00, save as `video/assets/vo.wa
 
 ## 2. team · 0:10 to 0:14 (4 s, 13 words)
 
-> We're [NAME 1], [NAME 2], [NAME 3], [NAME 4]. We built Phylax Tower.
+> We're Mani, Ariyan, Sahand, Amirali. We built Phylax Tower.
 
 ## 3. what · 0:14 to 0:22 (8 s, 26 words)
 
