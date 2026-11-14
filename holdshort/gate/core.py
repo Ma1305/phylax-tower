@@ -6,7 +6,9 @@ Reason codes written to ``Decision.rule``:
 - ``tier_never``          the agent's tier is "never"
 - ``no_permission``       no permission document for the agent
 - ``no_active_rule_set``  no rule set is active
-- ``tier_autonomous``     executed without a controller (stop/close/reopen, autonomous tier)
+- ``unknown_rule_set``    set_rule_set names a rule set version that does not exist
+- ``tier_autonomous``     executed without a controller (stop/close/reopen/set_rule_set,
+                          autonomous tier)
 - ``needs_approval``      waiting for a controller (any propose_instruction, or needs_approval tier)
 - ``controller_approved`` executed after approve(); approved_by = controller
 - ``controller_revoked``  revoke(); revokes = the revoked decision, approved_by = controller
@@ -14,6 +16,10 @@ Reason codes written to ``Decision.rule``:
 Decision.t is scenario time: the initial decision uses the intent's t; approvals and
 revocations use the referenced decision's t plus the wall-clock time elapsed since it
 was inserted (so the audit timeline stays in scenario order).
+
+set_rule_set: when a set_rule_set intent executes (autonomously or on approve), the gate
+activates the rule set named in the intent's proposal_text and deactivates the others.
+The decision's authorized_by.rule_set_version is the rule set active *before* the switch.
 
 Exactly-once: the change stream resume token is stored in gate_state after every event
 (and after idle batches). On restart the gate resumes from it. Before inserting it
@@ -39,7 +45,7 @@ log = logging.getLogger("holdshort.gate")
 
 INTENT_COLLECTION_RE = re.compile(r"^intents_([a-z]+)$")
 GATE_STATE_ID = "gate"
-AUTONOMOUS_ACTIONS = ("stop", "close_runway", "reopen_runway")
+AUTONOMOUS_ACTIONS = ("stop", "close_runway", "reopen_runway", "set_rule_set")
 _ACTIONS = set(get_args(c.IntentAction))
 _AGENTS = set(get_args(c.AgentName))
 
@@ -74,6 +80,22 @@ def _scenario_time(ref: dict) -> datetime:
         if elapsed.total_seconds() > 0:
             t = t + elapsed
     return t
+
+
+def activate_rule_set(db: Database, version: str) -> None:
+    """Make ``version`` the only active rule set (rules is the one mutable config collection)."""
+    if db.rules.find_one({"version": version}) is None:
+        raise GateError(f"unknown rule set {version!r}")
+    # activate first so there is never a moment with no active rule set
+    db.rules.update_one({"version": version}, {"$set": {"active": True}})
+    db.rules.update_many({"version": {"$ne": version}, "active": True}, {"$set": {"active": False}})
+    log.info("rule set %s is now active", version)
+
+
+def _apply(db: Database, action: str, intent: dict) -> None:
+    """Side effects of an executed decision that the gate itself owns."""
+    if action == "set_rule_set":
+        activate_rule_set(db, intent.get("proposal_text") or "")
 
 
 def _initial_decision(db: Database, intent_id: ObjectId) -> dict | None:
@@ -115,6 +137,10 @@ def decide(db: Database, agent: str, intent: dict) -> dict | None:
         outcome, rule = "rejected", "tier_never"
     elif rule_set is None:
         outcome, rule = "rejected", "no_active_rule_set"
+    elif action == "set_rule_set" and not db.rules.find_one(
+        {"version": intent.get("proposal_text") or ""}
+    ):
+        outcome, rule = "rejected", "unknown_rule_set"
     elif action in AUTONOMOUS_ACTIONS and perm.get("tier") == "autonomous":
         outcome, rule = "executed", "tier_autonomous"
     else:
@@ -135,6 +161,8 @@ def decide(db: Database, agent: str, intent: dict) -> dict | None:
         notified=list(intent.get("target") or []) if outcome == "executed" else [],
     )
     log.info("intent %s from %s (%s) -> %s [%s]", intent_id, agent, action, outcome, rule)
+    if outcome == "executed":
+        _apply(db, action, intent)
     return decision
 
 
@@ -174,6 +202,7 @@ def approve(db: Database, intent_id: ObjectId | str, controller: str) -> dict:
         approved_by=controller,
         notified=list(intent.get("target") or []),
     )
+    _apply(db, pending["intent_action"], intent)
     log.info("intent %s approved by %s -> decision %s", intent_id, controller, decision["_id"])
     return decision
 

@@ -50,8 +50,13 @@ AgentName = Literal["listener", "weather", "safety", "procedures"]
 PermissionAgent = Literal["listener", "weather", "safety", "procedures", "system"]
 """Permission switches: one per agent plus the "system" master switch."""
 
-IntentAction = Literal["stop", "propose_instruction", "close_runway", "reopen_runway"]
-"""What an agent asks the action gate to do. Never "clear": the AI cannot clear traffic."""
+IntentAction = Literal[
+    "stop", "propose_instruction", "close_runway", "reopen_runway", "set_rule_set"
+]
+"""What an agent asks the action gate to do. Never "clear": the AI cannot clear traffic.
+
+``set_rule_set`` (weather agent): proposal_text holds the rule set version to activate.
+"""
 
 DecisionOutcome = Literal["executed", "rejected", "pending_approval", "revoked"]
 """What the action gate decided for an intent."""
@@ -215,6 +220,13 @@ class RuleSet(_Model):
     rules: list[Rule]
 
 
+class Position(_Model):
+    """A simple map position (WGS84 degrees)."""
+
+    lat: float
+    lon: float
+
+
 class FlightState(_Model):
     """Latest known state of one callsign (collection: flight_state, TTL on expires_at)."""
 
@@ -222,8 +234,31 @@ class FlightState(_Model):
     current_clearance: Instruction | None = None
     runway: Runway | None = None
     hold_short: bool = Field(default=False, description="Told to hold short / stopped.")
+    position: Position | None = Field(
+        default=None, description="Simulated map position, written by the scenario runner."
+    )
     updated_at: UtcDatetime
     expires_at: UtcDatetime = Field(description="TTL: the document is deleted after this time.")
+
+
+class Metar(_Model):
+    """One weather observation emitted by the scenario runner (collection: metar)."""
+
+    t: UtcDatetime
+    visibility_sm: float = Field(ge=0, description="Visibility in statute miles.")
+    wind: str = Field(description='Wind group, e.g. "03012KT".')
+
+
+class SecurityEvent(_Model):
+    """A blocked write attempt by a misbehaving agent (collection: security_events, insert-only)."""
+
+    t: UtcDatetime = Field(description="Wall-clock time of the attempt (UTC).")
+    agent: AgentName
+    attempted: str = Field(description='What it tried, e.g. "intents_procedures action=clear".')
+    error_code: int | None = Field(
+        default=None, description="MongoDB error code (121 = document failed validation)."
+    )
+    error: str = Field(description="Error message returned by Atlas.")
 
 
 def to_mongo(model: BaseModel) -> dict[str, Any]:

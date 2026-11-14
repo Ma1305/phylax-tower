@@ -46,7 +46,9 @@ def eleven(text: str, voice: str, key: str, dst: Path) -> None:
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
         params={"output_format": "mp3_44100_128"},
         headers={"xi-api-key": key, "accept": "audio/mpeg"},
-        json={"text": text, "model_id": os.environ.get("ELEVENLABS_MODEL", "").strip() or "eleven_multilingual_v2",
+        json={"text": text,
+              "model_id": os.environ.get("ELEVENLABS_MODEL", "").strip()
+              or "eleven_multilingual_v2",
               "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}},
         timeout=90,
     )
@@ -64,7 +66,8 @@ def flite(text: str, voice: str, dst: Path) -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--offline", action="store_true",
                     help="use ffmpeg/flite placeholder voices instead of ElevenLabs")
     args = ap.parse_args()

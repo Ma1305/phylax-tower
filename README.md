@@ -77,3 +77,20 @@ uv run python -m holdshort.listener --text --dry-run                           #
   `flag: "unclear - say again"`. A "stop" with no callsign -> kind `stop`, `to: "UNKNOWN"`, flagged.
 - `readback`: clearance -> `missing` (awaiting readback), readback -> `matched`/`mismatch` vs the last
   clearance to that callsign, everything else -> `not_applicable`.
+
+## Agents and scenario runner
+
+Each agent is its own process. Agents never act: they only insert intents into
+`intents_<agent>`; the gate (`python -m holdshort.gate`) decides.
+
+    uv run python -m holdshort.agents.safety_agent       # transmissions -> stop intents
+    uv run python -m holdshort.agents.procedures_agent   # executed crossing stop -> proposal
+    uv run python -m holdshort.agents.weather_agent      # METAR < 1 sm -> set_rule_set low_vis_v1
+    uv run python -m holdshort.agents.procedures_agent rogue   # blocked writes -> security_events
+
+    uv run python -m holdshort.scenario.runner reset     # clears flight_state + runway_status only
+    uv run python -m holdshort.scenario.runner start --safety on --speed 5 --mode text
+
+`scripts/demo_check.sh` runs the whole thing (gate + agents, scenario with safety off
+then on, rogue agent) in a throwaway `<MONGODB_DB>_demo_check` database and asserts
+the demo outcomes. Logs go to `logs/demo_check/`.
