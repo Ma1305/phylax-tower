@@ -1,12 +1,12 @@
-"""Audit agent: deterministic timelines and grounded explanations (read-only).
+"""Audit agent: deterministic timelines and grounded explanations over the v2 log (read-only).
 
     from holdshort.audit import timeline, explain
-    timeline("TRUCK1")                       # list of timeline items, scenario order
-    explain("Why was TRUCK1 held?")          # {"timeline": [...], "narrative": "..."}
+    timeline(db, "LGA", entity="TRUCK1")        # list of timeline items, time order
+    explain(db, "Why was TRUCK1 held?")         # {"timeline", "narrative", "cited", ...}
 
-This package never writes to MongoDB: it only runs find/aggregate/distinct.
+This package never writes to MongoDB: it only runs find / aggregate / distinct.
 """
 
-from holdshort.audit.core import KINDS, answer, explain, timeline
+from holdshort.audit.core import KINDS, answer, explain, parse_question, timeline
 
-__all__ = ["KINDS", "answer", "explain", "timeline"]
+__all__ = ["KINDS", "answer", "explain", "parse_question", "timeline"]

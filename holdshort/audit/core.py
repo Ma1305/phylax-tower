@@ -1,18 +1,20 @@
-"""Audit timeline (one aggregation) and LLM explanation grounded in it.
+"""Audit agent on the v2 log: one deterministic timeline aggregation and a grounded narrative.
 
-Timeline items: ``{t, kind, actor, summary, rule, authorized_by, approved_by, doc_id}``.
+``timeline(db, tower_id, ...)`` runs ONE aggregation on ``transmissions`` that ``$unionWith``s
+the other insert-only logs: ``intents_*``, ``decisions``, ``state_events`` and
+``security_events``. Each item is::
 
-- ``kind`` is one of KINDS (transmission, intent, decision, permission, security_event).
-- ``doc_id`` is the source document's ``_id`` as a string; narratives cite it as
-  ``[doc_id]``.
-- Order is deterministic: ``t``, then KINDS order, then ``doc_id``.
+    {t, kind, actor, summary, lane_id, controller_id, rule, authorized_by, approved_by, doc_id}
 
-Read-only: only ``aggregate``/``distinct`` are used.
+``kind`` is one of KINDS. Order is deterministic: ``t``, then KINDS order, then ``doc_id``.
+``explain(db, question)`` picks the entity / lane / controller / time from the question, builds
+the timeline and writes a short narrative that cites ``[doc_id]``s from it only.
+
+Read-only: this module only calls ``aggregate``, ``find``, ``find_one`` and ``distinct``.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
@@ -22,193 +24,237 @@ from typing import Any
 from bson import ObjectId
 from pymongo.database import Database
 
-from holdshort.contracts import AGENTS_WITH_INTENTS, CALLSIGN_PATTERN
+from holdshort.contracts import AGENTS_WITH_INTENTS
 
 log = logging.getLogger("holdshort.audit")
 
-KINDS = ("transmission", "intent", "decision", "permission", "security_event")
-DEFAULT_WINDOW = timedelta(minutes=10)
+KINDS = ("transmission", "intent", "decision", "lane_status", "permission", "rule_set",
+         "controller", "object_removed", "security_event")
+GLOBAL_STATE = ("permission", "rule_set", "controller")
+DEFAULT_WINDOW = timedelta(minutes=15)
+DEFAULT_TOWER = "LGA"
 DEFAULT_MODEL = "claude-opus-5-5"
-_INTENT_COLLS = [f"intents_{a}" for a in AGENTS_WITH_INTENTS]
+INTENT_COLLS = [f"intents_{a}" for a in AGENTS_WITH_INTENTS]
 _CITE_RE = re.compile(r"\[([0-9a-f]{24})\]")
 
 
-# ------------------------------------------------------------------ pipeline parts
+# ------------------------------------------------------------------------ pipeline
 
 
-def _s(expr: Any) -> dict:
-    """Null-safe string conversion inside $concat."""
-    return {"$ifNull": [{"$toString": expr}, ""]}
+def _common(kind_expr: Any, order_expr: Any, actor: Any, lane: Any, ctl: Any, rule: Any,
+            auth: Any, appr: Any, raw: dict) -> dict:
+    return {"$project": {
+        "_id": 0, "t": 1, "kind": kind_expr, "kind_order": order_expr,
+        "actor": actor, "lane_id": lane, "controller_id": ctl, "rule": rule,
+        "authorized_by": auth, "approved_by": appr,
+        "doc_id": {"$toString": "$_id"}, "raw": raw,
+    }}
 
 
-def _opt(prefix: str, expr: Any) -> dict:
-    """`prefix + expr` when expr is set, else ""."""
-    return {"$cond": [{"$ifNull": [expr, False]}, {"$concat": [prefix, _s(expr)]}, ""]}
+_NULL = {"$literal": None}
 
 
-def _time_match(field: str, lo: datetime | None, hi: datetime | None) -> list[dict]:
-    if lo is None:
-        return []
-    return [{"$match": {field: {"$gte": lo, "$lte": hi}}}]
+def _and(*conds: dict | None) -> dict:
+    cs = [c for c in conds if c]
+    return {"$and": cs} if cs else {}
 
 
-def _out(kind: str, t, actor, summary, rule=None, authorized_by=None, approved_by=None) -> dict:
-    return {
-        "$project": {
-            "_id": 0,
-            "t": t,
-            "kind": {"$literal": kind},
-            "kind_order": {"$literal": KINDS.index(kind)},
-            "actor": actor,
-            "summary": summary,
-            "rule": rule if rule is not None else {"$literal": None},
-            "authorized_by": authorized_by if authorized_by is not None else {"$literal": None},
-            "approved_by": approved_by if approved_by is not None else {"$literal": None},
-            "doc_id": {"$toString": "$_id"},
-        }
-    }
+def _time(lo: datetime | None, hi: datetime | None) -> dict | None:
+    return {"t": {"$gte": lo, "$lte": hi}} if lo is not None else None
 
 
-def _transmissions(entity: str, lo, hi) -> list[dict]:
-    return [
-        {"$match": {"$or": [{"from": entity}, {"to": entity}]}},
-        *_time_match("t", lo, hi),
-        _out(
-            "transmission",
-            "$t",
-            "$from",
-            {"$concat": [
-                _s("$from"), " -> ", _s("$to"), " (", _s("$kind"), "/", _s("$instruction"),
-                _opt(" runway ", "$runway"), _opt(" at ", "$at"), "): \"", _s("$transcript"),
-                "\" readback=", _s("$readback"), " verified=", _s("$verified"),
-            ]},
-        ),
-    ]
+def _transmissions(tower_id, names, lane_id, ctl_lanes, controller_id, lo, hi) -> list[dict]:
+    match = _and(
+        {"tower_id": tower_id}, _time(lo, hi),
+        {"$or": [{"from": {"$in": names}}, {"to": {"$in": names}}]} if names else None,
+        {"lane_id": lane_id} if lane_id else None,
+        {"$or": [{"controller_id": controller_id}, {"lane_id": {"$in": ctl_lanes}}]}
+        if controller_id else None,
+    )
+    return [{"$match": match}, _common(
+        {"$literal": "transmission"}, {"$literal": KINDS.index("transmission")},
+        {"$cond": [{"$eq": ["$synthetic", True]}, "HOLDSHORT", "$from"]},
+        "$lane_id", "$controller_id", _NULL, _NULL, _NULL,
+        {"from": "$from", "to": "$to", "kind": "$kind", "instruction": "$instruction",
+         "runway": "$runway", "transcript": "$transcript", "readback": "$readback",
+         "stream_id": "$stream_id", "synthetic": "$synthetic", "decision_id": "$decision_id",
+         "flag": "$flag", "confidence": "$confidence"},
+    )]
 
 
-def _intents(coll: str, entity: str, lo, hi) -> list[dict]:
-    return [
-        {"$match": {"$or": [{"target": entity}, {"agent": entity.lower()},
-                            {"conflicts_with": entity}]}},
-        *_time_match("t", lo, hi),
-        _out(
-            "intent",
-            "$t",
-            "$agent",
-            {"$concat": [
-                _s("$agent"), " agent requested ", _s("$action"), " for ",
-                {"$reduce": {"input": {"$ifNull": ["$target", []]}, "initialValue": "",
-                             "in": {"$concat": ["$$value",
-                                                {"$cond": [{"$eq": ["$$value", ""]}, "", ","]},
-                                                "$$this"]}}},
-                _opt(" runway ", "$runway"), _opt(" (conflicts with ", "$conflicts_with"),
-                {"$cond": [{"$ifNull": ["$conflicts_with", False]}, ")", ""]},
-                _opt(": ", "$reason"), _opt(" proposal: ", "$proposal_text"),
-            ]},
-            rule="$reason",
-        ),
-    ]
+def _intents(tower_id, names, lane_id, ctl_lanes, controller_id, lo, hi) -> list[dict]:
+    match = _and(
+        {"tower_id": tower_id}, _time(lo, hi),
+        {"$or": [{"target": {"$in": names}}, {"conflicts_with": {"$in": names}},
+                 {"object_ids": {"$in": names}}, {"agent": {"$in": names}}]}
+        if names else None,
+        {"lane_id": lane_id} if lane_id else None,
+        {"lane_id": {"$in": ctl_lanes}} if controller_id else None,
+    )
+    return [{"$match": match}, _common(
+        {"$literal": "intent"}, {"$literal": KINDS.index("intent")}, "$agent",
+        "$lane_id", _NULL, "$reason", _NULL, _NULL,
+        {"agent": "$agent", "action": "$action", "severity": "$severity", "target": "$target",
+         "conflicts_with": "$conflicts_with", "proposal_text": "$proposal_text",
+         "detail": "$detail"},
+    )]
 
 
-def _decisions(entity: str, lo, hi) -> list[dict]:
-    lookups: list[dict] = []
-    for coll in _INTENT_COLLS:
-        lookups.append({"$lookup": {"from": coll, "localField": "intent_id",
-                                    "foreignField": "_id", "as": f"_i_{coll}"}})
-    return [
-        *_time_match("t", lo, hi),
-        *lookups,
-        {"$set": {"_intent": {"$first": {"$concatArrays": [f"$_i_{c}" for c in _INTENT_COLLS]}}}},
-        {"$match": {"$or": [{"_intent.target": entity}, {"notified": entity},
-                            {"agent": entity.lower()}, {"_intent.conflicts_with": entity}]}},
-        {"$lookup": {"from": "permissions", "localField": "authorized_by.permission_id",
-                     "foreignField": "_id", "as": "_perm"}},
-        {"$set": {"_perm": {"$first": "$_perm"}}},
-        _out(
-            "decision",
-            "$t",
-            {"$literal": "gate"},
-            {"$concat": [
-                "gate ", _s("$outcome"), " ", _s("$agent"), " ", _s("$intent_action"),
-                " (intent ", _s("$intent_id"), ")",
-                _opt(" safety reason: ", "$_intent.reason"),
-                _opt("; permission agent=", "$_perm.agent"),
-                _opt(" tier=", "$_perm.tier"),
-                _opt("; approved by ", "$approved_by"),
-                _opt("; revokes decision ", "$revokes"),
-                {"$cond": [{"$gt": [{"$size": {"$ifNull": ["$notified", []]}}, 0]},
-                           {"$concat": ["; notified ", {"$reduce": {
-                               "input": "$notified", "initialValue": "",
-                               "in": {"$concat": ["$$value", {"$cond": [
-                                   {"$eq": ["$$value", ""]}, "", ","]}, "$$this"]}}}]},
-                           ""]},
-            ]},
-            rule="$rule",
-            authorized_by="$authorized_by",
-            approved_by="$approved_by",
-        ),
-    ]
-
-
-def _permissions(entity: str, lo, hi) -> list[dict]:
-    # Without a time window: only the entity's own switch (agents) plus the master switch
-    # when the entity is an agent. With one: every switch changed inside the window.
-    match = (
-        _time_match("changed_at", lo, hi)
-        if lo is not None
-        else [{"$match": {"agent": entity.lower()}}]
+def _decisions(tower_id, names, lane_id, controller_id, lo, hi) -> list[dict]:
+    lookups = [{"$lookup": {"from": c, "localField": "intent_id", "foreignField": "_id",
+                            "as": f"_i{n}"}} for n, c in enumerate(INTENT_COLLS)]
+    match = _and(
+        {"$or": [{"target": {"$in": names}}, {"notified": {"$in": names}},
+                 {"agent": {"$in": names}}, {"_intent.target": {"$in": names}},
+                 {"_intent.conflicts_with": {"$in": names}}, {"approved_by": {"$in": names}}]}
+        if names else None,
+        {"lane_id": lane_id} if lane_id else None,
+        {"$or": [{"controller_id": controller_id}, {"approved_by": controller_id}]}
+        if controller_id else None,
     )
     return [
-        *match,
-        _out(
-            "permission",
-            "$changed_at",
-            "$by",
-            {"$concat": ["permission ", _s("$agent"), " enabled=", _s("$enabled"),
-                         " tier=", _s("$tier"), " (changed by ", _s("$by"), ")"]},
-            rule="$tier",
-        ),
-    ]
-
-
-def _security_events(entity: str, lo, hi) -> list[dict]:
-    # security_events is written by other tasks; read its common fields defensively.
-    t = {"$ifNull": ["$t", "$at"]}
-    ent = [{"target": entity}, {"callsign": entity}, {"actor": entity},
-           {"agent": entity.lower()}]
-    match: dict = {"$or": ent}
-    if lo is not None:
-        match = {"$or": [*ent, {"t": {"$gte": lo, "$lte": hi}}]}
-    return [
+        {"$match": _and({"tower_id": tower_id}, _time(lo, hi))},
+        *lookups,
+        {"$set": {"_intent": {"$first": {"$concatArrays": [
+            f"$_i{n}" for n in range(len(INTENT_COLLS))]}}}},
         {"$match": match},
-        _out(
-            "security_event",
-            t,
-            {"$ifNull": ["$actor", {"$ifNull": ["$agent", "$by"]}]},
-            {"$ifNull": ["$summary", {"$ifNull": ["$message", {"$ifNull": [
-                "$description", {"$concat": ["security event ", _s("$type")]}]}]}]},
-            rule={"$ifNull": ["$rule", {"$ifNull": ["$code", "$type"]}]},
+        _common(
+            {"$literal": "decision"}, {"$literal": KINDS.index("decision")},
+            {"$ifNull": ["$approved_by", "gate"]}, "$lane_id", "$controller_id", "$rule",
+            "$authorized_by", "$approved_by",
+            {"agent": "$agent", "action": "$intent_action", "outcome": "$outcome",
+             "severity": "$severity", "target": "$target", "text": "$text",
+             "intent_id": {"$toString": "$intent_id"}, "revokes": {"$toString": "$revokes"},
+             "notified": "$notified", "mode": "$mode", "stream_id": "$stream_id",
+             "conflicts_with": "$_intent.conflicts_with", "intent_reason": "$_intent.reason"},
         ),
     ]
 
 
-def build_pipeline(entity: str, around: datetime | None = None,
-                   window: timedelta = DEFAULT_WINDOW) -> list[dict]:
-    """The aggregation (run on transmissions) that produces the timeline."""
-    lo = hi = None
-    if around is not None:
-        lo, hi = around - window, around + window
-    stages = _transmissions(entity, lo, hi)
-    for coll in _INTENT_COLLS:
-        stages.append({"$unionWith": {"coll": coll, "pipeline": _intents(coll, entity, lo, hi)}})
-    stages.append({"$unionWith": {"coll": "decisions", "pipeline": _decisions(entity, lo, hi)}})
-    stages.append({"$unionWith": {"coll": "permissions",
-                                  "pipeline": _permissions(entity, lo, hi)}})
-    stages.append({"$unionWith": {"coll": "security_events",
-                                  "pipeline": _security_events(entity, lo, hi)}})
+def _state_events(tower_id, names, lane_id, controller_id, lo, hi) -> list[dict]:
+    is_global = {"kind": {"$in": list(GLOBAL_STATE)}}
+    ent = None
+    if names:
+        ent = {"$or": [{"ref": {"$in": names}}, {"doc.occupants": {"$in": names}},
+                       {"doc.reservations.callsign": {"$in": names}}]}
+    lane = {"$or": [{"kind": "lane_status", "ref": lane_id}, is_global]} if lane_id else None
+    ctl = None
+    if controller_id:
+        ctl = {"$or": [{"by": controller_id}, {"ref": controller_id},
+                       {"doc.controller_id": controller_id}]}
+    return [{"$match": _and({"tower_id": tower_id}, _time(lo, hi), ent, lane, ctl)}, _common(
+        "$kind", {"$indexOfArray": [list(KINDS), "$kind"]}, "$by",
+        {"$cond": [{"$eq": ["$kind", "lane_status"]}, "$ref", None]},
+        {"$ifNull": ["$doc.controller_id", None]},
+        {"$cond": [{"$eq": ["$kind", "rule_set"]},
+                   {"$ifNull": ["$doc.version", "$ref"]}, None]},
+        _NULL, _NULL,
+        {"ref": "$ref", "by": "$by", "state": "$doc.state", "reason": "$doc.reason",
+         "occupants": "$doc.occupants", "reservations": "$doc.reservations.callsign",
+         "enabled": "$doc.enabled", "mode": "$doc.mode", "tier": "$doc.tier",
+         "version": "$doc.version", "active": "$doc.active", "lanes": "$doc.lanes"},
+    )]
+
+
+def _security_events(names, lane_id, controller_id, lo, hi) -> list[dict]:
+    # security_events carry no tower_id or lane_id; with a lane filter they are left out.
+    if lane_id:
+        return [{"$match": {"_id": None}}]
+    who = names + ([controller_id] if controller_id else [])
+    match = _and(_time(lo, hi),
+                 {"$or": [{"agent": {"$in": who}}, {"controller_id": {"$in": who}}]}
+                 if who and (names or controller_id) else None)
+    return [{"$match": match}, _common(
+        {"$literal": "security_event"}, {"$literal": KINDS.index("security_event")},
+        {"$ifNull": ["$controller_id", "$agent"]}, _NULL,
+        {"$ifNull": ["$controller_id", None]}, "$kind", _NULL, _NULL,
+        {"kind": "$kind", "attempted": "$attempted", "error_code": "$error_code",
+         "error": "$error"},
+    )]
+
+
+def build_pipeline(tower_id: str, names: list[str], lane_id: str | None,
+                   controller_id: str | None, ctl_lanes: list[str],
+                   lo: datetime | None, hi: datetime | None) -> list[dict]:
+    """The single aggregation (run on ``transmissions``) behind ``timeline()``."""
+    stages = _transmissions(tower_id, names, lane_id, ctl_lanes, controller_id, lo, hi)
+    for coll in INTENT_COLLS:
+        stages.append({"$unionWith": {"coll": coll, "pipeline": _intents(
+            tower_id, names, lane_id, ctl_lanes, controller_id, lo, hi)}})
+    stages.append({"$unionWith": {"coll": "decisions", "pipeline": _decisions(
+        tower_id, names, lane_id, controller_id, lo, hi)}})
+    stages.append({"$unionWith": {"coll": "state_events", "pipeline": _state_events(
+        tower_id, names, lane_id, controller_id, lo, hi)}})
+    stages.append({"$unionWith": {"coll": "security_events", "pipeline": _security_events(
+        names, lane_id, controller_id, lo, hi)}})
     stages.append({"$sort": {"t": 1, "kind_order": 1, "doc_id": 1}})
     stages.append({"$unset": "kind_order"})
     return stages
+
+
+# ------------------------------------------------------------------------ summaries
+
+
+def _j(xs: Any) -> str:
+    return ",".join(str(x) for x in xs or []) or "-"
+
+
+def _summary(kind: str, r: dict, it: dict) -> str:
+    if kind == "transmission":
+        who = "Hold Short (synthetic) " if r.get("synthetic") else ""
+        s = (f"{who}{r.get('from')} -> {r.get('to')} on {r.get('stream_id')}: "
+             f"{r.get('kind')}/{r.get('instruction')}")
+        if r.get("runway"):
+            s += f" runway {r['runway']}"
+        s += f' "{r.get("transcript", "")}" readback={r.get("readback")}'
+        if r.get("flag"):
+            s += f" flag={r['flag']}"
+        if r.get("decision_id"):
+            s += f" (for decision {r['decision_id']})"
+        return s
+    if kind == "intent":
+        s = (f"{r.get('agent')} agent asked to {r.get('action')} ({r.get('severity')}) "
+             f"for {_j(r.get('target'))} reason {it.get('rule')}")
+        if r.get("conflicts_with"):
+            s += f", conflicts with {r['conflicts_with']}"
+        if r.get("proposal_text"):
+            s += f', proposal "{r["proposal_text"]}"'
+        if r.get("detail"):
+            s += f": {r['detail']}"
+        return s
+    if kind == "decision":
+        ab = it.get("authorized_by") or {}
+        s = (f"gate {r.get('outcome')} {r.get('agent')} {r.get('action')} for "
+             f"{_j(r.get('target'))} (intent {r.get('intent_id')}), rule {it.get('rule')}, "
+             f"routed to {it.get('controller_id')}, authorized by permission "
+             f"{ab.get('permission_id')} rule set {ab.get('rule_set_version')}")
+        if it.get("approved_by"):
+            s += f", approved by {it['approved_by']}"
+        if r.get("revokes"):
+            s += f", revokes decision {r['revokes']}"
+        if r.get("text"):
+            s += f': "{r["text"]}"'
+        return s
+    if kind == "lane_status":
+        s = (f"lane {r.get('ref')} -> {r.get('state')} occupants {_j(r.get('occupants'))} "
+             f"reservations {_j(r.get('reservations'))}")
+        return s + (f" ({r['reason']})" if r.get("reason") else "")
+    if kind == "permission":
+        return (f"permission {r.get('ref')} set enabled={r.get('enabled')} mode={r.get('mode')}"
+                f" tier={r.get('tier')} by {r.get('by')}")
+    if kind == "rule_set":
+        return f"rule set {r.get('version') or r.get('ref')} active={r.get('active')} by " \
+               f"{r.get('by')}"
+    if kind == "controller":
+        return f"controller {r.get('ref')} lanes {_j(r.get('lanes'))} by {r.get('by')}"
+    if kind == "object_removed":
+        return f"object {r.get('ref')} removed"
+    if kind == "security_event":
+        s = f"security event {r.get('kind')}: {it.get('actor')} attempted {r.get('attempted')}"
+        if r.get("error_code") is not None:
+            s += f" -> {r['error_code']}"
+        return s + (f" ({r['error']})" if r.get("error") else "")
+    return kind
 
 
 def _plain(v: Any) -> Any:
@@ -223,212 +269,249 @@ def _plain(v: Any) -> Any:
     return v
 
 
-def _parse_time(around: datetime | str | None) -> datetime | None:
-    if around is None or around == "":
+def _parse_time(v: datetime | str | None) -> datetime | None:
+    if v is None or v == "":
         return None
-    if isinstance(around, str):
-        around = datetime.fromisoformat(around.replace("Z", "+00:00"))
-    return around if around.tzinfo else around.replace(tzinfo=UTC)
+    if isinstance(v, str):
+        v = datetime.fromisoformat(v.replace("Z", "+00:00"))
+    return v if v.tzinfo else v.replace(tzinfo=UTC)
 
 
-def _db(db: Database | None) -> Database:
-    if db is not None:
-        return db
-    from holdshort.db import get_db
+def _related_names(db: Database, tower_id: str, entity: str) -> list[str]:
+    """The entity plus every callsign an intent about it conflicts with (and vice versa)."""
+    names = {entity, entity.lower()}
+    for coll in INTENT_COLLS:
+        for d in db[coll].find({"tower_id": tower_id, "target": entity},
+                               {"conflicts_with": 1}):
+            if d.get("conflicts_with"):
+                names.add(d["conflicts_with"])
+    return sorted(names)
 
-    return get_db()
 
-
-def timeline(entity: str, around: datetime | str | None = None, *, db: Database | None = None,
+def timeline(db: Database, tower_id: str = DEFAULT_TOWER, *, entity: str | None = None,
+             lane_id: str | None = None, controller_id: str | None = None,
+             around: datetime | str | None = None,
              window: timedelta = DEFAULT_WINDOW) -> list[dict]:
-    """Everything recorded about ``entity`` (callsign or agent), optionally ±window of around."""
-    entity = entity.strip().upper()
-    pipeline = build_pipeline(entity, _parse_time(around), window)
-    return [_plain(d) for d in _db(db).transmissions.aggregate(pipeline)]
+    """Everything the insert-only logs hold, filtered, in deterministic order.
+
+    ``entity``: a callsign (its conflicting callsigns are included), an agent or controller id.
+    ``around``: only items within ``window`` of it. With no filter at all, ``around`` = now.
+    """
+    names = _related_names(db, tower_id, entity.strip().upper()) if entity else []
+    if entity and entity.strip() != entity.strip().upper():
+        names.append(entity.strip())
+    around = _parse_time(around)
+    if around is None and not (names or lane_id or controller_id):
+        around = datetime.now(UTC)
+    lo, hi = (around - window, around + window) if around else (None, None)
+    ctl_lanes: list[str] = []
+    if controller_id:
+        c = db.controllers.find_one({"_id": controller_id}, {"lanes": 1}) or {}
+        ctl_lanes = list(c.get("lanes") or [])
+    pipe = build_pipeline(tower_id, names, lane_id, controller_id, ctl_lanes, lo, hi)
+    out = []
+    for d in db.transmissions.aggregate(pipe):
+        d = _plain(d)
+        raw = d.pop("raw", {}) or {}
+        item = {k: d.get(k) for k in ("t", "kind", "actor", "summary", "lane_id",
+                                       "controller_id", "rule", "authorized_by",
+                                       "approved_by", "doc_id")}
+        item["summary"] = _summary(item["kind"], raw, item)
+        out.append(item)
+    return out
 
 
-# --------------------------------------------------------------------------- explain
+# ------------------------------------------------------------------------ question parsing
+
+_NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "ten": 10,
+              "fifteen": 15, "twenty": 20, "thirty": 30, "a": 1}
+_LANE_WORD = re.compile(r"\b(runway|rwy|taxiway|twy|apron|ramp)\s+([0-9]{1,2}[LRC]?|[A-Z]{1,2})?\b",
+                        re.I)
+_LAST = re.compile(r"\blast\s+(\d+|[a-z]+)?\s*(second|sec|minute|min|hour)s?\b", re.I)
 
 
-def _known_entities(db: Database) -> list[str]:
-    names = set(db.transmissions.distinct("from")) | set(db.transmissions.distinct("to"))
-    for coll in _INTENT_COLLS:
-        names |= set(db[coll].distinct("target"))
-    return sorted(n for n in names if isinstance(n, str))
+def _known_callsigns(db: Database, tower_id: str) -> set[str]:
+    q = {"tower_id": tower_id}
+    names = set(db.transmissions.distinct("from", q)) | set(db.transmissions.distinct("to", q))
+    for coll in INTENT_COLLS:
+        names |= set(db[coll].distinct("target", q))
+    return {n for n in names if isinstance(n, str)} - {"TOWER", "GROUND", "OPS", "UNKNOWN",
+                                                        "HOLDSHORT"}
 
 
-def _heuristic_entity(question: str, known: list[str]) -> str | None:
-    tokens = re.findall(r"[A-Za-z0-9]+", question)
-    upper = [t.upper() for t in tokens]
-    for tok in upper:
-        if tok in known and tok != "TOWER":
-            return tok
-    for tok in upper:
-        if tok in known:
-            return tok
-    for tok in tokens:  # an uppercase callsign-looking token with a digit
-        if re.fullmatch(CALLSIGN_PATTERN, tok) and re.search(r"\d", tok):
-            return tok
-    return None
+def parse_question(db: Database, question: str, tower_id: str = DEFAULT_TOWER,
+                   now: datetime | None = None) -> dict:
+    """Pick {entity, lane_id, controller_id, around, window} from the question and the data."""
+    from holdshort.world import lane_for_designator
+
+    tokens = re.findall(r"[A-Za-z0-9_]+", question)
+    known = _known_callsigns(db, tower_id)
+    entity = next((t.upper() for t in tokens if t.upper() in known), None)
+    controllers = {c["_id"] for c in db.controllers.find({"tower_id": tower_id}, {"_id": 1})}
+    controller_id = next((t for t in tokens if t in controllers), None)
+    lanes = {x["_id"] for x in db.lanes.find({"tower_id": tower_id}, {"_id": 1})}
+    lane_id = next((t.upper() for t in tokens if t.upper() in lanes), None)
+    if lane_id is None:
+        m = _LANE_WORD.search(question)
+        if m and m.group(2):
+            lane_id = lane_for_designator(db, tower_id, m.group(2).upper())
+    around, window = None, DEFAULT_WINDOW
+    m = _LAST.search(question)
+    if m:
+        n = m.group(1) or "1"
+        n = int(n) if n.isdigit() else _NUM_WORDS.get(n.lower(), 1)
+        unit = m.group(2).lower()
+        secs = n * (1 if unit.startswith("s") else 3600 if unit == "hour" else 60)
+        around, window = now or datetime.now(UTC), timedelta(seconds=secs)
+    elif not (entity or lane_id or controller_id):
+        around = now or datetime.now(UTC)
+    return {"tower_id": tower_id, "entity": entity, "lane_id": lane_id,
+            "controller_id": controller_id, "around": around, "window": window}
 
 
-def _llm_client():
-    key = os.environ.get("LLM_API_KEY", "").strip()
-    if not key:
-        return None
-    import anthropic
-
-    return anthropic.Anthropic(api_key=key, timeout=60.0, max_retries=1)
+# ------------------------------------------------------------------------ narratives
 
 
-def _model() -> str:
-    return os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODEL
+def _cite(it: dict) -> str:
+    return f"[{it['doc_id']}]"
 
 
-def _llm_json(client, system: str, user: str, schema: dict) -> dict | None:
-    import anthropic
-
-    try:
-        msg = client.messages.create(
-            model=_model(),
-            max_tokens=4000,
-            system=system,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
-            messages=[{"role": "user", "content": user}],
-        )
-    except anthropic.APIError as e:
-        from holdshort.env import redact
-
-        log.warning("LLM call failed: %s", redact(e))
-        return None
-    if msg.stop_reason != "end_turn":
-        log.warning("LLM stopped with %s", msg.stop_reason)
-        return None
-    text = "".join(b.text for b in msg.content if b.type == "text")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        log.warning("LLM returned non-JSON output")
-        return None
-
-
-_PICK_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "entity": {"type": "string", "description": "Callsign or agent name, or \"\"."},
-        "around": {"type": "string", "description": "ISO-8601 UTC time, or \"\"."},
-    },
-    "required": ["entity", "around"],
-    "additionalProperties": False,
-}
-
-_NARRATIVE_SCHEMA = {
-    "type": "object",
-    "properties": {"narrative": {"type": "string"}},
-    "required": ["narrative"],
-    "additionalProperties": False,
-}
-
-_NARRATIVE_SYSTEM = (
-    "You are the audit agent for an airport tower safety system. You explain what happened "
-    "using ONLY the timeline items you are given. Every sentence that states a fact must end "
-    "with the doc_id of the item it comes from in square brackets, e.g. [65f0c0ffee...]. "
-    "Name the rule, authorized_by (permission_id and rule_set_version) and approved_by of "
-    "the relevant decisions exactly as they appear. Do not add facts, times, causes, people "
-    "or callsigns that are not in the timeline. If the timeline does not answer the question, "
-    "say so. Keep it under 150 words, plain text."
-)
-
-
-def _pick(question: str, db: Database, client) -> tuple[str | None, datetime | None]:
-    known = _known_entities(db)
-    entity, around = None, None
-    if client is not None:
-        out = _llm_json(
-            client,
-            "Pick the single entity (a callsign such as TRUCK1, or an agent name such as "
-            "safety) that the audit question is about, and a scenario time if the question "
-            "names one. Use \"\" when absent. Prefer entities from the known list.",
-            json.dumps({"question": question, "known_entities": known}),
-            _PICK_SCHEMA,
-        )
-        if out:
-            entity = (out.get("entity") or "").strip().upper() or None
-            try:
-                around = _parse_time(out.get("around") or None)
-            except ValueError:
-                around = None
-    if entity is None or not re.fullmatch(CALLSIGN_PATTERN, entity):
-        entity = _heuristic_entity(question, known)
-    return entity, around
-
-
-def _fallback_narrative(entity: str | None, items: list[dict]) -> str:
-    if not entity:
-        return "I could not tell which callsign or agent the question is about."
+def fallback_narrative(question: str, items: list[dict], focus: dict) -> str:
+    """Plain rule-based narrative assembled only from the timeline items."""
     if not items:
-        return f"No records found for {entity}."
-    lines = []
-    for it in items:
-        extra = ""
-        if it["kind"] == "decision":
-            ab = it.get("authorized_by") or {}
-            extra = (f" rule={it.get('rule')}; authorized_by permission "
-                     f"{ab.get('permission_id')} rule set {ab.get('rule_set_version')}; "
-                     f"approved_by={it.get('approved_by') or 'none'}.")
-        lines.append(f"{it['t'].isoformat()} {it['summary']}.{extra} [{it['doc_id']}]")
+        what = focus.get("entity") or focus.get("lane_id") or focus.get("controller_id")
+        return f"No records found{f' for {what}' if what else ''}."
+    q = question.lower()
+    ent = focus.get("entity")
+    lines: list[str] = []
+    decisions = [it for it in items if it["kind"] == "decision"]
+    if "approv" in q or "who allowed" in q:
+        hits = [d for d in decisions if d.get("approved_by")]
+        topic = [w for w in ("cross", "land", "takeoff", "taxi", "hold") if w in q]
+        if topic:
+            hits = [d for d in hits if any(w in d["summary"].lower() for w in topic)] or hits
+        for d in hits:
+            lines.append(f"{d['approved_by']} approved it: {d['summary']} {_cite(d)}.")
+        if not hits:
+            lines.append("No decision in this timeline has an approved_by.")
+        return " ".join(lines)
+    if any(w in q for w in ("why", "held", "hold", "stop")):
+        stops = [d for d in decisions if " stop " in f" {d['summary']} "
+                 and (not ent or ent in d["summary"])]
+        for d in stops:
+            ab = d.get("authorized_by") or {}
+            lines.append(
+                f"{ent or 'The target'} was stopped by decision {d['doc_id']}: rule {d['rule']}, "
+                f"authorized by permission {ab.get('permission_id')} (rule set "
+                f"{ab.get('rule_set_version')}), approved_by {d.get('approved_by') or 'none'} "
+                f"{_cite(d)}.")
+        conflicts = {c for it in items if it["kind"] == "intent"
+                     for c in re.findall(r"conflicts with ([A-Z0-9]+)", it["summary"])}
+        for it in items:
+            if it["kind"] == "transmission" and it["actor"] in conflicts | {"TOWER", "GROUND"} \
+                    and any(c in it["summary"] for c in conflicts) \
+                    and "clearance/" in it["summary"]:
+                lines.append(f"The conflicting clearance: {it['summary']} {_cite(it)}.")
+        for it in items:
+            if it["kind"] == "lane_status" and "conflict" in it["summary"]:
+                lines.append(f"Lane status: {it['summary']} {_cite(it)}.")
+        if lines:
+            return " ".join(lines)
+    for it in items[:20]:
+        lines.append(f"{it['t'].isoformat()} {it['summary']} {_cite(it)}.")
+    if len(items) > 20:
+        lines.append(f"(+{len(items) - 20} more items in the timeline)")
     return "\n".join(lines)
 
 
-def _grounded(narrative: str, items: list[dict]) -> bool:
-    """Every citation must be a timeline doc_id, and there must be at least one."""
-    cited = _CITE_RE.findall(narrative)
+_SYSTEM = (
+    "You are the audit agent of an airport tower safety system. Explain what happened using "
+    "ONLY the timeline items given. End every factual sentence with the doc_id of the item it "
+    "comes from in square brackets, e.g. [65f0c0ffee...]. Name rule, authorized_by and "
+    "approved_by exactly as they appear. Never add facts, times, causes, people or callsigns "
+    "that are not in the timeline; if it does not answer the question, say so. Under 150 "
+    "words, plain text. Put every doc_id you cite in `cited`."
+)
+
+
+def _llm_from_env():
+    key = os.environ.get("LLM_API_KEY", "").strip()
+    if not key:
+        return None
+    if os.environ.get("LANGSMITH_API_KEY", "").strip():
+        os.environ.setdefault("LANGSMITH_TRACING", "true")
+        os.environ.setdefault("LANGSMITH_PROJECT", "holdshort-audit")
+    from langchain_anthropic import ChatAnthropic
+
+    return ChatAnthropic(model=os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODEL,
+                         api_key=key, max_tokens=1500, timeout=60, max_retries=1)
+
+
+def _llm_narrative(llm, question: str, items: list[dict]) -> str | None:
+    from pydantic import BaseModel, Field
+
+    class AuditNarrative(BaseModel):
+        narrative: str = Field(description="Short narrative citing [doc_id]s")
+        cited: list[str] = Field(description="doc_ids cited")
+
+    payload = [{**it, "t": it["t"].isoformat()} for it in items]
+    try:
+        out = llm.with_structured_output(AuditNarrative).invoke([
+            ("system", _SYSTEM), ("human", f"Question: {question}\nTimeline: {payload}")])
+    except Exception as e:  # noqa: BLE001  any provider failure -> rule-based fallback
+        from holdshort.env import redact
+
+        log.warning("audit LLM call failed: %s", redact(e))
+        return None
+    if isinstance(out, dict):
+        out = AuditNarrative(**out)
     ids = {it["doc_id"] for it in items}
-    return bool(cited) and all(c in ids for c in cited)
+    cited = set(_CITE_RE.findall(out.narrative)) | set(out.cited)
+    if not cited or not cited <= ids:
+        log.warning("audit LLM narrative cited ids outside the timeline; using fallback")
+        return None
+    return out.narrative
 
 
-def explain(question: str, *, db: Database | None = None, client: Any = "env") -> dict:
-    """Answer an audit question: ``{entity, around, timeline, narrative, source}``.
+def explain(db: Database, question: str, *, tower_id: str = DEFAULT_TOWER,
+            llm: Any = "env", now: datetime | None = None) -> dict:
+    """Answer an audit question: ``{timeline, narrative, cited, focus, source}``.
 
-    ``client`` is an Anthropic client, None (no LLM), or "env" (use LLM_API_KEY if set).
-    ``source`` is "llm" when the narrative came from the model and passed the citation
-    check, else "deterministic". The timeline is always built by ``timeline()``.
+    ``llm`` is a LangChain chat model, None (rule-based only) or "env" (ChatAnthropic when
+    LLM_API_KEY is set). The narrative may only cite doc_ids that are in the timeline.
     """
-    db = _db(db)
-    if client == "env":
-        client = _llm_client()
-    entity, around = _pick(question, db, client)
-    items = timeline(entity, around, db=db) if entity else []
-    narrative, source = None, "deterministic"
-    if client is not None and entity and items:
-        payload = [{**it, "t": it["t"].isoformat()} for it in items]
-        out = _llm_json(
-            client,
-            _NARRATIVE_SYSTEM,
-            json.dumps({"question": question, "entity": entity, "timeline": payload},
-                       default=str),
-            _NARRATIVE_SCHEMA,
-        )
-        cand = (out or {}).get("narrative", "")
-        if cand and _grounded(cand, items):
-            narrative, source = cand, "llm"
-        elif cand:
-            log.warning("LLM narrative cited ids outside the timeline; using fallback")
+    focus = parse_question(db, question, tower_id, now)
+    items = timeline(db, tower_id, entity=focus["entity"], lane_id=focus["lane_id"],
+                     controller_id=focus["controller_id"], around=focus["around"],
+                     window=focus["window"])
+    if llm == "env":
+        llm = _llm_from_env()
+    narrative, source = None, "rules"
+    if llm is not None and items:
+        narrative = _llm_narrative(llm, question, items)
+        source = "llm" if narrative else "rules"
     if narrative is None:
-        narrative = _fallback_narrative(entity, items)
-    return {"entity": entity, "around": around, "timeline": items, "narrative": narrative,
+        narrative = fallback_narrative(question, items, focus)
+    ids = {it["doc_id"] for it in items}
+    cited = list(dict.fromkeys(c for c in _CITE_RE.findall(narrative) if c in ids))
+    return {"timeline": items, "narrative": narrative, "cited": cited, "focus": focus,
             "source": source}
 
 
+def _json(v: Any) -> Any:
+    if isinstance(v, datetime):
+        return v.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    if isinstance(v, timedelta):
+        return v.total_seconds()
+    if isinstance(v, dict):
+        return {k: _json(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_json(x) for x in v]
+    if isinstance(v, ObjectId):
+        return str(v)
+    return v
+
+
 def answer(db: Database, q: str) -> dict:
-    """Hook for ``GET /audit?q=...`` in holdshort/api/app.py: explain() as JSON-able data."""
-    out = explain(q, db=db)
-
-    def iso(v: Any) -> Any:
-        return v.isoformat() if isinstance(v, datetime) else v
-
-    return {
-        **out,
-        "around": iso(out["around"]),
-        "timeline": [{k: iso(v) for k, v in it.items()} for it in out["timeline"]],
-    }
+    """Hook for ``GET /control/audit?q=...``: explain() as JSON-safe data."""
+    return _json(explain(db, q))
