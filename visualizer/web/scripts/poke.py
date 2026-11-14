@@ -1,6 +1,6 @@
 """Test helper for scripts/pair.mjs: change the scratch database so /viz/live has something to send.
 
-    uv run --project ../api python scripts/poke.py lane|call|drop   (MONGODB_DB must be a scratch db)
+uv run --project ../api python scripts/poke.py lane|call|drop   (MONGODB_DB must be a scratch db)
 """
 
 import sys
@@ -9,10 +9,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "api"))
 
+import config  # noqa: E402
 from bson import ObjectId  # noqa: E402
 from pymongo import MongoClient  # noqa: E402
-
-import config  # noqa: E402
 
 name = config.db_name()
 if name in config.PROTECTED_DBS or "_t" not in name:
@@ -26,7 +25,9 @@ if what == "lane":  # a lane closes and an object moves
         {"_id": "TWY_G"},
         {"$set": {"state": "closed", "reason": "Closed for inspection", "updated_at": now}},
     )
-    db.objects.update_one({"_id": "OBJ-17"}, {"$set": {"label": "Person on foot (moved)", "updated_at": now}})
+    db.objects.update_one(
+        {"_id": "OBJ-17"}, {"$set": {"label": "Person on foot (moved)", "updated_at": now}}
+    )
 elif what == "call":  # a new call with audio on the Ops stream
     src = db.audio_clips.find_one({"stream_id": "LGA_OPS", "direction": "in"})
     clip_id, tx_id = ObjectId(), ObjectId()
