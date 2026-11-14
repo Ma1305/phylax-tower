@@ -15,9 +15,6 @@
 logs
 **/logs
 tools/fixtures/audio
-scenarios/*/audio/*
-!scenarios/*/audio/manifest.json
-scripts/verify/out
 .idea
 .vscode
 .claude

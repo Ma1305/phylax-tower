@@ -208,7 +208,7 @@ def _write_tone(dest: Path, text: str, hz: float) -> None:
 
 
 def _radio_cmd(ffmpeg: str, src: Path, duration_s: float, level: str, dest: Path) -> list[str]:
-    """The degrade.sh chain: band-pass, compressor, pink noise, squelch at key-up and release."""
+    """The radio effect: band-pass, compressor, pink noise, squelch at key-up and release."""
     hp, lp, threshold, ratio, makeup, noise, squelch, drive = RADIO_PARAMS[level]
     # Voice padded 0.15 s each side; noise runs the full length; the squelch bursts are
     # louder noise on the first and last 0.12 s.

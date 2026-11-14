@@ -1,11 +1,10 @@
-# IDE
-.idea/
-.vscode/
-
-# Secrets - never commit (the repo is public)
+# Secrets: never commit (the repo is public)
 .env
 .env.*
 !.env.example
+# Google service-account key files (GOOGLE_APPLICATION_CREDENTIALS)
+*service-account*.json
+*-sa-key.json
 
 # MCP config files (may contain the MongoDB connection string)
 .mcp.json
@@ -14,28 +13,31 @@ mcp.json
 mcp-config*.json
 .claude/settings.local.json
 
+# MongoDB agent skills: installed per machine with `npx skills add mongodb/agent-skills`
+.claude/skills/
+skills-lock.json
+
 # Python
 .venv/
 venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
 
-# Node
+# Node and build output
 node_modules/
+dist/
+build/
 
-# Generated test artifacts
-scripts/verify/out/
-
-# MongoDB agent skills: installed per machine with `npx skills add mongodb/agent-skills`
-.claude/skills/
-skills-lock.json
-
-# Generated radio audio (regenerate with scripts/audio/); only the manifest is committed
-scenarios/*/audio/*
-!scenarios/*/audio/manifest.json
-
-# Process logs (scripts/demo_check.sh, demo scripts)
+# Process logs and pid files (scripts/run_all.sh, scripts/run_v2.sh)
 logs/
 
-# v2: generated fixture audio
+# Generated audio (text-to-speech cache of tools/smoke_feed.py)
 tools/fixtures/audio/
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store

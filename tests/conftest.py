@@ -38,7 +38,7 @@ def client():
     import holdshort.env  # noqa: F401  (loads .env)
 
     if not os.environ.get("MONGODB_URI", "").strip():
-        pytest.skip("MONGODB_URI is not set (see SETUP_STATUS.md)")
+        pytest.skip("MONGODB_URI is not set (see .env.example)")
     from holdshort.db import get_client
 
     c = get_client()
