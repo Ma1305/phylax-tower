@@ -143,7 +143,7 @@ export function Radio(p: Props) {
       const q = latest.current;
       const T = q.live ? Date.now() : q.viewT;
       const a = q.audioRef.current;
-      if (clock.current && a) clock.current.textContent = a.currentSrc && Number.isFinite(a.duration) ? `${mmss(a.currentTime)} / ${mmss(a.duration)}` : '';
+      if (clock.current && a) clock.current.textContent = a.currentSrc && Number.isFinite(a.duration) ? mmss(a.currentTime) : '';
       const dpr = window.devicePixelRatio || 1;
       for (const s of q.streams) {
         const cv = canvases.current[s._id];
