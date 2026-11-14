@@ -129,7 +129,7 @@ Seeded access lists:
 |---|---|---|
 | listener | audio_clips, streams, controllers, lanes, objects, callsigns | transmissions, audio_clips |
 | safety | context, objects, lane_status, lanes, controllers, streams, rules, permissions, weather | intents_safety |
-| procedures | context, objects, lane_status, lanes, controllers, streams, rules, decisions, intents_safety, incidents | intents_procedures |
+| procedures | context, objects, lane_status, lanes, controllers, streams, rules, decisions, intents_safety, incidents, permissions | intents_procedures |
 | weather | weather, rules | intents_weather |
 
 **rules** as v1 (`version`, `name`, `active`, `rules[]`). Rule ids:
