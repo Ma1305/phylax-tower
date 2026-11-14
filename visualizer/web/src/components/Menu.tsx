@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from 'react';
 export interface MenuOption<T extends string | number> {
   value: T;
   label: string;
+  detail?: string; // a second, muted line
+  badge?: number;
+  badgeTone?: 'stop' | 'warn';
 }
 
 interface Props<T extends string | number> {
@@ -13,10 +16,11 @@ interface Props<T extends string | number> {
   disabled?: boolean;
   up?: boolean; // open upwards (bottom bar)
   prefix?: string;
+  left?: boolean; // align the list to the button's left edge
 }
 
 /** The one dropdown of the app: a 28px button, a popover list, keyboard and outside-click handling. */
-export function Menu<T extends string | number>({ value, options, onChange, label, disabled, up, prefix }: Props<T>) {
+export function Menu<T extends string | number>({ value, options, onChange, label, disabled, up, prefix, left }: Props<T>) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const root = useRef<HTMLDivElement>(null);
@@ -62,10 +66,11 @@ export function Menu<T extends string | number>({ value, options, onChange, labe
     } else if (e.key === 'Tab') setOpen(false);
   };
   return (
-    <div className={`menu ${open ? 'open' : ''} ${up ? 'up' : ''}`} ref={root} onKeyDown={key} onClick={(e) => e.stopPropagation()}>
+    <div className={`menu ${open ? 'open' : ''} ${up ? 'up' : ''} ${left ? 'left' : ''}`} ref={root} onKeyDown={key} onClick={(e) => e.stopPropagation()}>
       <button ref={btn} type="button" className="menu-btn" aria-haspopup="listbox" aria-expanded={open} aria-label={label} disabled={disabled} onClick={() => (open ? setOpen(false) : show())}>
         {prefix && <span className="menu-prefix">{prefix}</span>}
         <span>{cur?.label ?? String(value)}</span>
+        {!!cur?.badge && <i className={`dotc ${cur.badgeTone === 'stop' ? 'is-stop' : 'is-warn'}`} />}
         <svg width="8" height="5" viewBox="0 0 8 5" aria-hidden>
           <path d="M1 1l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.25" />
         </svg>
@@ -73,11 +78,15 @@ export function Menu<T extends string | number>({ value, options, onChange, labe
       {open && (
         <ul className="menu-list" role="listbox" aria-label={label}>
           {options.map((o, i) => (
-            <li key={String(o.value)} role="option" aria-selected={o.value === value} className={`${i === active ? 'active' : ''} ${o.value === value ? 'sel' : ''}`} onMouseEnter={() => setActive(i)} onClick={() => pick(i)}>
+            <li key={String(o.value)} role="option" aria-selected={o.value === value} className={`${i === active ? 'active' : ''} ${o.value === value ? 'sel' : ''} ${o.detail ? 'tall' : ''}`} onMouseEnter={() => setActive(i)} onClick={() => pick(i)}>
               <svg width="10" height="8" viewBox="0 0 10 8" aria-hidden>
                 {o.value === value && <path d="M1 4l3 3 5-6" fill="none" stroke="currentColor" strokeWidth="1.5" />}
               </svg>
-              {o.label}
+              <span className="menu-main">
+                <span>{o.label}</span>
+                {o.detail && <small>{o.detail}</small>}
+              </span>
+              {!!o.badge && <span className={`countpill ${o.badgeTone === 'stop' ? 'c-stop' : 'c-warn'}`}>{o.badge}</span>}
             </li>
           ))}
         </ul>
