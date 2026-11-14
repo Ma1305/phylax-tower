@@ -132,3 +132,13 @@ def test_explain_live_llm(lga):
     assert d["rule"] == "tier_autonomous"
     assert d["authorized_by"]["permission_id"]
     print(out["source"], out["narrative"])
+
+
+def test_answer_hook_is_json(lga, monkeypatch):
+    from holdshort.audit import answer
+
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    out = answer(lga.db, "Why was TRUCK1 held?")
+    json.dumps(out)
+    assert any(i["kind"] == "decision" and i["rule"] == "tier_autonomous"
+               for i in out["timeline"])

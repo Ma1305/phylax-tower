@@ -45,6 +45,7 @@ security_events and returns items `{t, kind, actor, summary, rule, authorized_by
 approved_by, doc_id}` in scenario order. `explain(question)` uses the LLM (`LLM_API_KEY`,
 `LLM_MODEL`) to pick the entity/time and write a narrative citing `[doc_id]`s; a narrative
 that cites anything outside the timeline is discarded for a deterministic one.
+`answer(db, q)` is the hook `GET /audit?q=...` in `holdshort/api/app.py` calls.
 
 ```bash
 uv run python -m holdshort.audit "Why was TRUCK1 held?"

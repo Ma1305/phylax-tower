@@ -418,3 +418,17 @@ def explain(question: str, *, db: Database | None = None, client: Any = "env") -
         narrative = _fallback_narrative(entity, items)
     return {"entity": entity, "around": around, "timeline": items, "narrative": narrative,
             "source": source}
+
+
+def answer(db: Database, q: str) -> dict:
+    """Hook for ``GET /audit?q=...`` in holdshort/api/app.py: explain() as JSON-able data."""
+    out = explain(q, db=db)
+
+    def iso(v: Any) -> Any:
+        return v.isoformat() if isinstance(v, datetime) else v
+
+    return {
+        **out,
+        "around": iso(out["around"]),
+        "timeline": [{k: iso(v) for k, v in it.items()} for it in out["timeline"]],
+    }
