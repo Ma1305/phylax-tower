@@ -64,9 +64,10 @@ SYSTEM_PROMPT = """\
 You label tower radio calls at LaGuardia for a safety system. Label only what was \
 actually said. Never guess or fill in a missing callsign, runway or taxiway.
 
-Stations (contract callsigns): TOWER (LaGuardia tower), AC8646 (Air Canada 8646, \
-"the jet"), TRUCK1 (Truck 1 and company, the fire trucks). Write callsigns as \
-uppercase with no spaces; use UNKNOWN when no station is named.
+Stations (contract callsigns): TOWER (LaGuardia tower), GROUND (LaGuardia ground), \
+OPS (airport operations), aircraft such as AC8646 (Air Canada 8646), vehicles such as \
+TRUCK1 (Truck 1 and company). Write callsigns as uppercase with no spaces; use UNKNOWN \
+when no station is named.
 
 kind:
 - clearance: the tower issues an instruction (cleared to land / for takeoff, cross \
@@ -75,10 +76,12 @@ runway X, hold short, line up and wait, taxi, go around).
 a runway is a request to land (instruction land).
 - readback: a station repeats a clearance it was given; label the instruction, \
 runway and taxiway exactly as read back.
-- stop: the tower says "stop".
-- other: anything else - position reports after a landing clearance was already \
-issued, "stand by", acknowledgements, garbled calls. Use instruction none, runway \
-null and at null for other.
+- stop: the controller says "stop".
+- report: a station reports its position or state: holding short, clear of the \
+runway, runway vacated, airborne, on final after a landing clearance. Use instruction \
+none; keep the runway / taxiway named.
+- other: anything else - "stand by", acknowledgements, garbled calls. Use \
+instruction none, runway null and at null for other.
 instruction: land|takeoff|cross|hold_short|line_up_wait|taxi|go_around|none.
 runway: the runway number as spoken digits (e.g. "4"), or null. Wind direction is \
 not a runway.
@@ -164,6 +167,14 @@ def get_labeller(name: str = "auto") -> LlmFn:
     return rules.label
 
 
+STATIONS = frozenset({"TOWER", "GROUND", "OPS"})
+
+
+def _station(callsign: str, station: str | None) -> str:
+    """A controller station heard on a stream is that stream's station."""
+    return station if station and callsign in STATIONS else callsign
+
+
 def _mentioned(callsign: str, text: str, aliases: dict[str, str] | None) -> bool:
     """True if some spoken form of `callsign` occurs in the transcript."""
     words = re.sub(r"[^\w\s]", " ", text.lower()).split()
@@ -185,7 +196,9 @@ def parse(
 
     context keys (all optional): t (aware datetime), speaker (callsign hint from
     the radio/script), aliases (extra spoken-name -> callsign map), history (recent
-    transmissions as dicts), audio_ref.
+    transmissions as dicts), fields (extra Transmission fields: tower_id, stream_id,
+    controller_id, direction, ...), station (the controller station of the stream:
+    a controller's call is from it).
     """
     context = context or {}
     t = context.get("t") or datetime.now(UTC)
@@ -193,12 +206,14 @@ def parse(
     confidence = max(0.0, min(1.0, float(confidence)))
     speaker = context.get("speaker")
     base = {
+        "direction": "in",
+        **(context.get("fields") or {}),
         "t": t,
         "transcript": text,
         "confidence": confidence,
         "readback": "not_applicable",
-        "audio_ref": context.get("audio_ref"),
     }
+    station = context.get("station")
 
     label = None
     if text.strip():
@@ -208,7 +223,7 @@ def parse(
             print(f"listener: labelling failed: {type(e).__name__}")
             label = None
 
-    sender = normalize_callsign(speaker or (label or {}).get("from"), aliases)
+    sender = _station(normalize_callsign(speaker or (label or {}).get("from"), aliases), station)
 
     unclear = (
         label is None
@@ -218,7 +233,7 @@ def parse(
         or label.get("instruction") not in get_args(Instruction)
     )
     if unclear:
-        to = normalize_callsign((label or {}).get("to"), aliases)
+        to = _station(normalize_callsign((label or {}).get("to"), aliases), station)
         return Transmission.model_validate({
             **base, "from": sender, "to": to, "kind": "other", "instruction": "none",
             "runway": None, "at": None, "verified": False, "flag": FLAG_UNCLEAR,
@@ -228,7 +243,9 @@ def parse(
     instruction = label["instruction"]
     runway = normalize_runway(label.get("runway"))
     at = normalize_taxiway(label.get("at"))
-    to = normalize_callsign(label.get("to"), aliases)
+    to = _station(normalize_callsign(label.get("to"), aliases), station)
+    if station and sender == UNKNOWN and kind in ("clearance", "stop"):
+        sender = station  # only a controller issues clearances and stops
     flag = None
     if kind == "stop":
         instruction, runway, at = "none", None, None
@@ -238,6 +255,8 @@ def parse(
             flag = FLAG_STOP_NO_CALLSIGN
     elif kind == "other":
         instruction, runway, at = "none", None, None
+    elif kind == "report":
+        instruction = "none"
     return Transmission.model_validate({
         **base, "from": sender, "to": to, "kind": kind, "instruction": instruction,
         "runway": runway, "at": at, "verified": True, "flag": flag,

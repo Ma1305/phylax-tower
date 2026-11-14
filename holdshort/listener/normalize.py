@@ -28,7 +28,7 @@ PHONETIC = {
 }
 
 # Spoken telephony designators -> ICAO-ish prefixes used in our callsigns.
-TELEPHONY = {"air canada": "AC", "truck": "TRUCK"}
+TELEPHONY = {"air canada": "AC", "united": "UA", "delta": "DL", "truck": "TRUCK", "ops": "OPS"}
 
 # Words that are noise around a callsign ("Truck one and company", "LaGuardia tower").
 _NOISE = re.compile(r"\b(and company|and co|laguardia|la guardia|the)\b")
@@ -85,6 +85,8 @@ def normalize_callsign(raw: str | None, aliases: dict[str, str] | None = None) -
         return UNKNOWN
     if text in aliases:
         return aliases[text]
+    if text in {"ground", "laguardia ground"}:
+        return "GROUND"
     text = _spoken_digits(text)
     stripped = re.sub(r"\s+", " ", _NOISE.sub(" ", text)).strip()
     if stripped in aliases:

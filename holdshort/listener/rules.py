@@ -15,9 +15,10 @@ from holdshort.listener.normalize import PHONETIC, UNKNOWN, normalize_callsign
 
 _NUM = r"(?:zero|one|two|three|tree|four|fower|five|six|seven|eight|nine|niner|\d+)"
 _CALLSIGN_RE = re.compile(
-    rf"\b(?:air canada(?: {_NUM})+|truck(?: {_NUM})(?: and company)?|"
-    rf"(?:laguardia )?tower|the jet)\b"
+    rf"\b(?:(?:air canada|united|delta)(?: {_NUM})+|(?:truck|ops)(?: {_NUM})(?: and company)?|"
+    rf"(?:laguardia )?(?:tower|ground)|ops|the jet)\b"
 )
+STATIONS = {"TOWER", "GROUND", "OPS"}
 _RUNWAY_RE = re.compile(rf"\brunway((?: {_NUM}){{1,2}})(?: (left|right|center))?\b")
 _AT_RE = re.compile(rf"\bat ({'|'.join(sorted(PHONETIC, key=len, reverse=True))})\b")
 
@@ -31,6 +32,11 @@ _INSTRUCTIONS = [
     (r"\bcleared to land\b|\bland(?:ing)?\b", "land"),
     (r"\btaxi\b", "taxi"),
 ]
+
+_REPORT_RE = re.compile(
+    r"\bclear of (?:the )?runway\b|\bvacated\b|\bairborne\b|\bholding short\b|"
+    r"\bholding (?:at|on)\b|\bposition\b|\bon final\b|\bwe(?: re| are) clear\b"
+)
 
 _UNCLEAR_RE = re.compile(r"\bsay again\b|\.\.\.|\b(?:uh|um)\b.*\b(?:uh|um)\b")
 
@@ -65,8 +71,8 @@ def label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
         sender = speaker
     elif len(named) >= 2 and first_at_start:
         sender = named[1]  # "<addressee>, <sender>, ..."
-    elif named and first_at_start and named[0] != "TOWER":
-        sender = "TOWER"  # tower addressing a station
+    elif named and first_at_start and named[0] not in STATIONS:
+        sender = "TOWER"  # a controller addressing a station (parse maps it to the stream)
     elif named and last_at_end:
         sender = named[-1]  # readback ends with own callsign
     else:
@@ -74,7 +80,7 @@ def label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
     others = [cs for cs in named if cs != sender]
     if others and first_at_start:
         to = others[0]
-    elif sender not in ("TOWER", UNKNOWN):
+    elif sender not in STATIONS | {UNKNOWN}:
         to = "TOWER"
     else:
         to = UNKNOWN
@@ -90,13 +96,16 @@ def label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
         to = others[0] if others and first_at_start else UNKNOWN
     elif re.search(r"\brequest", plain):
         kind = "request"
-    elif sender == "TOWER" and instruction != "none":
+    elif sender in STATIONS and instruction != "none":
         kind = "clearance"
-    elif sender not in ("TOWER", UNKNOWN) and instruction != "none" and last_at_end \
+    elif sender not in STATIONS | {UNKNOWN} and instruction != "none" and last_at_end \
             and not first_at_start:
         kind = "readback"
-    elif sender not in ("TOWER", UNKNOWN) and "final" in plain and runway:
+    elif sender not in STATIONS | {UNKNOWN} and "final" in plain and runway \
+            and not _REPORT_RE.search(plain.replace("on final", "")):
         kind, instruction = "request", "land"
+    elif sender not in STATIONS | {UNKNOWN} and _REPORT_RE.search(plain):
+        kind, instruction = "report", "none"
     else:
         kind = "other"
     if kind in ("other", "stop"):
