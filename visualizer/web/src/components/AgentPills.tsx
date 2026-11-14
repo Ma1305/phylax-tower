@@ -1,24 +1,42 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import type { AgentMode, AgentState, DataSource, Permission, PermissionAgent, PermissionPatch, PermissionTier } from '../types';
 import { Menu } from './Menu';
-import type { AgentMode, DataSource, Permission, PermissionAgent, PermissionPatch, PermissionTier } from '../types';
 
-const AGENTS: PermissionAgent[] = ['listener', 'weather', 'safety', 'procedures'];
+const AGENTS: { id: PermissionAgent; what: string }[] = [
+  { id: 'safety', what: 'Rules: runway incursions, occupied runway' },
+  { id: 'procedures', what: 'Advisor: proposes instructions' },
+  { id: 'weather', what: 'Visibility and the rule set in force' },
+  { id: 'listener', what: 'Speech to transcript' },
+];
 const TIERS: PermissionTier[] = ['autonomous', 'needs_approval', 'never'];
 const MODES: AgentMode[] = ['reactive', 'proactive'];
 const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
+const find = (permissions: Permission[], id: string) => permissions.find((p) => p._id === id || p.agent === id);
 
-/** The agents as pill toggles in the top bar; the caret opens mode and tier. */
-export function AgentPills({ ds, permissions, by, readOnly }: { ds: DataSource; permissions: Permission[]; by: string; readOnly: boolean }) {
-  const [open, setOpen] = useState<string | null>(null);
+/** The whole agent state in a few words, for the top bar chip. */
+export function agentSummary(permissions: Permission[]): { tone: 'ok' | 'warn'; text: string; title: string } {
+  if (permissions.length === 0) return { tone: 'warn', text: 'Agents: no records', title: 'No permission records loaded' };
+  const master = find(permissions, 'system');
+  if (master && !master.enabled) return { tone: 'warn', text: 'Agents held · master off', title: 'The master switch is off: no agent acts' };
+  const off = AGENTS.filter((a) => !find(permissions, a.id)?.enabled).map((a) => a.id);
+  const safety = find(permissions, 'safety');
+  if (off.length) return { tone: 'warn', text: `${off.length === AGENTS.length ? 'All agents' : off.map(cap).join(', ')} off`, title: 'Open Settings to switch agents on' };
+  if (safety && safety.tier !== 'autonomous') return { tone: 'warn', text: `Agents on · safety ${safety.tier.replace('_', ' ')}`, title: 'Safety stops wait for a controller' };
+  return { tone: 'ok', text: `Agents on · safety ${safety?.tier.replace('_', ' ') ?? 'unknown'}`, title: 'Every agent is on' };
+}
+
+function identity(st: AgentState | undefined): string {
+  const id = st?.identity;
+  if (!id) return 'no database identity reported';
+  if (id.kind === 'generated') return `Atlas user ${id.username ?? '(unnamed)'}${id.role ? ` · role ${id.role}` : ''}`;
+  if (id.kind === 'static') return 'static Atlas user';
+  return 'shared connection';
+}
+
+/** Settings sheet: every agent's switch, mode, tier and database identity, and the master switch. */
+export function AgentSettings({ ds, permissions, agentState, by, readOnly }: { ds: DataSource; permissions: Permission[]; agentState: AgentState[]; by: string; readOnly: boolean }) {
   const [error, setError] = useState('');
-  const root = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const h = (e: MouseEvent) => root.current && !root.current.contains(e.target as Node) && setOpen(null);
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, []);
-  const get = (id: string) => permissions.find((p) => p._id === id || p.agent === id);
-  const master = get('system');
+  const master = find(permissions, 'system');
   const masterOn = master?.enabled ?? true;
   const set = async (agent: PermissionAgent, patch: Omit<PermissionPatch, 'by'>) => {
     setError('');
@@ -26,48 +44,40 @@ export function AgentPills({ ds, permissions, by, readOnly }: { ds: DataSource; 
       await ds.setPermission(agent, { by, ...patch });
     } catch (e) {
       setError(`${agent}: ${e instanceof Error ? e.message : String(e)}`);
-      setTimeout(() => setError(''), 5000);
     }
   };
   return (
-    <div className="agents-bar" ref={root}>
-      {AGENTS.map((id) => {
-        const p = get(id);
-        const on = !!p?.enabled && masterOn;
-        const big = id === 'safety';
+    <div className="settings">
+      {readOnly && <p className="set-note">History: settings are read-only.</p>}
+      <div className={`set-row master ${masterOn ? '' : 'off'}`}>
+        <button type="button" role="switch" aria-checked={masterOn} aria-label="Master switch" disabled={readOnly || !master} className={`toggle ${masterOn ? 'on' : ''}`} onClick={() => set('system', { enabled: !masterOn })}>
+          <span />
+        </button>
+        <div className="set-name">
+          <b>Master switch</b>
+          <span>{masterOn ? 'Agents may act within their own settings' : 'Off: every agent is held'}</span>
+        </div>
+      </div>
+      {AGENTS.map(({ id, what }) => {
+        const p = find(permissions, id);
+        const st = agentState.find((s) => s._id === `${id}_agent`) ?? agentState.find((s) => s._id === id);
         return (
-          <div key={id} className={`apill ${on ? 'on' : 'off'} ${big ? 'big' : ''}`} data-agent={id}>
+          <div key={id} className={`set-row ${p?.enabled && masterOn ? '' : 'off'}`} data-agent={id}>
             <button type="button" role="switch" aria-checked={p?.enabled ?? false} aria-label={`${id} enabled`} disabled={readOnly || !p} className={`toggle ${p?.enabled ? 'on' : ''}`} onClick={() => set(id, { enabled: !p?.enabled })}>
               <span />
             </button>
-            <span className="apill-name">
+            <div className="set-name">
               <b>{cap(id)}</b>
-              {big && <small>{p ? (on ? `${p.mode} · ${p.tier.replace('_', ' ')}` : masterOn ? 'off' : 'held by master') : 'no record'}</small>}
-            </span>
-            <button type="button" className="caret" aria-label={`${id} settings`} onClick={() => setOpen(open === id ? null : id)}>
-              ▾
-            </button>
-            {open === id && (
-              <div className="popover">
-                <div className="pop-title">{cap(id)} agent</div>
-                <label>Mode</label>
-                <Menu label={`${id} mode`} value={p?.mode ?? 'reactive'} disabled={readOnly || !p} onChange={(m) => set(id, { mode: m })} options={MODES.map((m) => ({ value: m, label: m }))} />
-                <label>Tier</label>
-                <Menu label={`${id} tier`} value={p?.tier ?? 'needs_approval'} disabled={readOnly || !p} onChange={(t) => set(id, { tier: t })} options={TIERS.map((t) => ({ value: t, label: t.replace('_', ' ') }))} />
-                {readOnly && <p className="pop-note">History: switches are read-only.</p>}
-              </div>
-            )}
+              <span>{what}</span>
+              <span className="mono ident">{identity(st)}</span>
+            </div>
+            <Menu label={`${id} mode`} prefix="Mode" value={p?.mode ?? 'reactive'} disabled={readOnly || !p} onChange={(m) => set(id, { mode: m })} options={MODES.map((m) => ({ value: m, label: m }))} />
+            <Menu label={`${id} tier`} prefix="Tier" value={p?.tier ?? 'needs_approval'} disabled={readOnly || !p} onChange={(t) => set(id, { tier: t })} options={TIERS.map((t) => ({ value: t, label: t.replace('_', ' ') }))} />
           </div>
         );
       })}
-      <label className={`master ${masterOn ? 'on' : 'off'}`} title="Master switch: turns every agent off at once">
-        <button type="button" role="switch" aria-checked={masterOn} aria-label="Master switch" disabled={readOnly || !master} className={`toggle sm ${masterOn ? 'on' : ''}`} onClick={() => set('system', { enabled: !masterOn })}>
-          <span />
-        </button>
-        <span>Master</span>
-      </label>
       {error && (
-        <div className="top-error" role="alert">
+        <div className="req-error" role="alert">
           {error}
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { bearing, makeProjection, NM, type XY } from '../geo';
+import { bearing, distM, makeProjection, NM, type XY } from '../geo';
 import type { Lane, LaneState, LaneStatus, ObjectDoc, World } from '../types';
 
 export const STATE_META: Record<LaneState, { label: string; hint: string }> = {
@@ -33,6 +33,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [zoom, setZoom] = useState<Zoom>('airfield');
   const [help, setHelp] = useState(false);
+  const [layers, setLayers] = useState({ labels: true, tags: true, final: true });
 
   useEffect(() => {
     const el = ref.current;
@@ -122,7 +123,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
   const placed: number[][] = [[0, 0, 250, 56], [size.w - 250, 0, size.w, 56]];
 
   return (
-    <div className="map" ref={ref}>
+    <div className={`map ${layers.labels ? '' : 'no-labels'} ${layers.tags ? '' : 'no-tags'} ${layers.final ? '' : 'no-final'}`} ref={ref}>
       <svg width={size.w} height={size.h} role="img" aria-label="Airfield map">
         {WATER.map((ring, i) => (
           <path key={i} className="water" d={ring.map((c, j) => `${j ? 'L' : 'M'}${px(c).join(',')}`).join(' ') + ' Z'} />
@@ -185,7 +186,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             const p = px(h.position.coordinates);
             const w = Math.max((lane?.width_m ?? 23) * scale, 9) / 2 + 1;
             return (
-              <g key={h._id} transform={`translate(${p[0]},${p[1]}) rotate(${ang})`} opacity={dim(h.lane_id) ? 0.3 : 1} className="holdpoint">
+              <g key={h._id} transform={`translate(${p[0]},${p[1]}) rotate(${ang})`} opacity={dim(h.lane_id) ? 0.3 : 1} className="holdpoint" data-hp={h._id}>
                 <title>{`Hold point ${h._id} (protects ${h.protects})`}</title>
                 <line x1={-w} x2={w} y1={-1.6} y2={-1.6} />
                 <line x1={-w} x2={w} y1={1.6} y2={1.6} strokeDasharray="3 2" />
@@ -202,6 +203,25 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
           const name = o.callsign ?? o.label ?? o._id;
           const air = o.status === 'airborne';
           const hot = flagged.has(o.callsign ?? o._id);
+          if (p[0] < 0 || p[0] > size.w || p[1] < 0 || p[1] > size.h) {
+            // outside the view: a marker on the map border pointing toward it
+            const dx = p[0] - size.w / 2;
+            const dy = p[1] - size.h / 2;
+            const k = Math.min((size.w / 2 - 24) / Math.abs(dx || 1e-6), (size.h / 2 - 24) / Math.abs(dy || 1e-6));
+            const ex = size.w / 2 + dx * k;
+            const ey = Math.max(76, size.h / 2 + dy * k);
+            const right = ex > size.w / 2;
+            const nm = distM(o.position.coordinates, world.tower.center.coordinates) / NM;
+            return (
+              <g key={o._id} data-id={o._id} className={`obj-edge ${hot ? 'hot' : ''}`} transform={`translate(${ex},${ey})`}>
+                <title>{`${name} is outside this view`}</title>
+                <path d="M9,0 L-3,-5 L-3,5 Z" transform={`rotate(${(Math.atan2(dy, dx) * 180) / Math.PI})`} />
+                <text x={right ? -10 : 14} y={ey > size.h - 40 ? -10 : 4} textAnchor={right ? 'end' : 'start'}>
+                  {name} · {nm.toFixed(1)} nm
+                </text>
+              </g>
+            );
+          }
           const showLabel = (!far || air) && (o.kind !== 'person' || !!o.callsign) && (o.kind === 'aircraft' || !!o.callsign || !!o.label || hot);
           const sub =
             o.kind === 'aircraft'
@@ -239,7 +259,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
           const [lx, ly, endAnchor] = pick;
           const below = ly > 0;
           return (
-            <g key={o._id} className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth ? 'smooth' : ''} ${hot ? 'hot' : ''}`} style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}>
+            <g key={o._id} data-id={o._id} className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth ? 'smooth' : ''} ${hot ? 'hot' : ''}`} style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}>
               <title>{`${name} · ${o.kind} · ${o.status}${o.lane_id ? ' · on ' + o.lane_id : ''}`}</title>
               {hot && <circle r={11} className="obj-ring" />}
               <ObjGlyph o={o} small={far} />
@@ -270,12 +290,24 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             Approach
           </button>
         </div>
-        <button className="help-btn" aria-label="Map key" onClick={() => setHelp(!help)}>
-          ?
+        <button className="menu-btn" aria-expanded={help} onClick={() => setHelp(!help)}>
+          Layers / legend
+          <svg width="8" height="5" viewBox="0 0 8 5" aria-hidden>
+            <path d="M1 1l3 3 3-3" fill="none" stroke="currentColor" strokeWidth="1.25" />
+          </svg>
         </button>
         {help && (
-          <div className="popover help" onClick={() => setHelp(false)}>
-            <div className="pop-title">Map key</div>
+          <div className="popover help">
+            <div className="pop-title">Layers</div>
+            {(['labels', 'tags', 'final'] as const).map((k) => (
+              <label key={k} className="layer-row">
+                <button type="button" role="switch" aria-checked={layers[k]} className={`toggle ${layers[k] ? 'on' : ''}`} onClick={() => setLayers({ ...layers, [k]: !layers[k] })}>
+                  <span />
+                </button>
+                {k === 'labels' ? 'Lane names' : k === 'tags' ? 'Object tags' : 'Final approach line'}
+              </label>
+            ))}
+            <div className="pop-title">Legend</div>
             <p><i className="key k-reserved" /> Reserved: an active clearance</p>
             <p><i className="key k-occupied" /> Occupied: something is on it</p>
             <p><i className="key k-conflict" /> Conflict: a clearance and other traffic</p>
@@ -292,8 +324,8 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
 function ObjGlyph({ o, small }: { o: ObjectDoc; small: boolean }) {
   const hdg = o.heading_deg ?? 0;
   if (o.kind === 'aircraft') return <path d={PLANE} className="glyph plane" transform={`rotate(${hdg}) scale(${small ? 0.45 : 0.55})`} />;
-  if (o.kind === 'vehicle') return <rect x={-2.5} y={-4} width={5} height={8} className="glyph vehicle" transform={`rotate(${hdg})`} />;
-  if (o.kind === 'person') return <circle r={2} className="glyph person" />;
+  if (o.kind === 'vehicle') return <rect x={-3} y={-5} width={6} height={10} rx={1} className="glyph vehicle" transform={`rotate(${hdg})`} />;
+  if (o.kind === 'person') return <circle r={2.5} className="glyph person" />;
   return <path d="M0,-5 L5,0 L0,5 L-5,0 Z" className="glyph unknown" />;
 }
 

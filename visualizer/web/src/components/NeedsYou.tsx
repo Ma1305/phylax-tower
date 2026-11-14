@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useStored } from '../collapse';
 import { ApiError, type DataSource, type Decision, type Transmission, type World } from '../types';
 import { ago, hhmmss } from '../util';
 import { Menu } from './Menu';
@@ -14,11 +15,10 @@ interface Props {
   showActAs: boolean;
   onActAs: (id: string) => void;
   readOnly: boolean;
-  onAudit: () => void;
 }
 
 /** Stops in effect, proposals waiting, and recent advisories: the only things that need a person. */
-export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, actor, showActAs, onActAs, readOnly, onAudit }: Props) {
+export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, actor, showActAs, onActAs, readOnly }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const ctlName = (id: string | null | undefined) => world.controllers.find((c) => c._id === id)?.name ?? id ?? 'nobody';
@@ -43,18 +43,23 @@ export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, 
     .sort((a, b) => b.t.localeCompare(a.t))
     .slice(0, 3);
   const calm = stops.length === 0 && list.length === 0;
+  const [collapsed, setCollapsed] = useStored('needs.collapsed');
+  const count = stops.length + list.length;
+  const prev = useRef(count);
+  useEffect(() => {
+    if (count > prev.current) setCollapsed(false); // something arrived: open
+    prev.current = count;
+  }, [count, setCollapsed]);
   return (
-    <section className="needs">
-      <header className="sec-head">
+    <section className={`needs ${collapsed ? 'collapsed' : ''}`}>
+      <header className="sec-head toggle-head" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed}>
+        <i className="chev" />
         <h2>Needs you</h2>
         {stops.length + list.length > 0 && <span className={`countpill ${stops.length ? 'c-stop' : 'c-warn'}`}>{stops.length + list.length}</span>}
         <span className="grow" />
         {showActAs && (
           <Menu label="Act as" prefix="Act as" value={actor} onChange={onActAs} disabled={readOnly} options={world.controllers.map((c) => ({ value: c._id, label: c.name }))} />
         )}
-        <button className="btn ghost" onClick={onAudit}>
-          Audit log
-        </button>
       </header>
       <div className="needs-body scroll">
         {stops.map((d) => {
