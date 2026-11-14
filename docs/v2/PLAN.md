@@ -160,7 +160,8 @@ Every worker accepts `--db NAME`, resumes from a change-stream token it stores i
 
 | Task | Owns | After |
 |---|---|---|
-| foundation | `holdshort/contracts.py`, `scripts/setup_atlas.py`, `holdshort/world/`, `holdshort/access.py`, `holdshort/api/app.py`, `holdshort/serve.py`, `holdshort/agents/_stream.py`, `tests/conftest.py`, removal of v1-only code | - |
+| foundation | `holdshort/contracts.py`, `scripts/setup_atlas.py`, `holdshort/world/`, `holdshort/access.py`, `holdshort/events.py`, `holdshort/api/deps.py`, `holdshort/agents/_stream.py`, `tests/conftest.py`, removal of v1-only code | - |
+| platform | `holdshort/api/app.py`, `holdshort/api/json.py`, `holdshort/api/routers/__init__.py`, `holdshort/serve.py` | - |
 | ingest | `holdshort/api/routers/ingest.py`, `holdshort/ingest/` | foundation |
 | listener | `holdshort/listener/` | foundation |
 | state | `holdshort/state/` | foundation |

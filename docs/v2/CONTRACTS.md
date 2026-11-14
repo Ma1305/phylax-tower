@@ -103,6 +103,9 @@ summary        one line, e.g. "18:41:07 TWR TOWER->AC8646 cleared to land RWY 04
 callsigns      [str]
 lane_ids       [lane_id]
 stream_id      str|null
+instruction    Instruction|null    copied from the transmission
+readback       Readback|null       copied from the transmission
+flag           str|null            copied from the transmission ("unclear - say again", ...)
 source         {coll, id}
 t
 superseded_by  ObjectId|null
