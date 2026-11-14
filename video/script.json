@@ -19,7 +19,7 @@
       "id": "incident",
       "start_s": 0,
       "end_s": 10,
-      "vo_text": "March 2026. LaGuardia, runway four. A jet is cleared to land. Two minutes later, a fire truck is cleared to cross the same runway. Two clearances. One runway.",
+      "vo_text": "March 2026, LaGuardia. A jet is cleared to land. Two minutes later, a fire truck is cleared to cross the same runway.",
       "title": "LAGUARDIA · RUNWAY 4 · MARCH 22, 2026",
       "cards": [
         {
@@ -53,25 +53,25 @@
       "id": "team",
       "start_s": 10,
       "end_s": 14,
-      "vo_text": "We're {names}. We built {product}."
+      "vo_text": "We're {names}. This is {product}."
     },
     {
       "id": "what",
       "start_s": 14,
       "end_s": 22,
-      "vo_text": "{product} is a safety net for control towers. Agents listen to every radio stream, log each call in MongoDB Atlas, and stop clearances that conflict."
+      "vo_text": "A safety net for control towers. Agents hear every radio call, log it in MongoDB Atlas, and stop conflicting clearances."
     },
     {
       "id": "catch",
       "start_s": 22,
       "end_s": 38,
-      "vo_text": "Same calls, Safety on. ElevenLabs cleans and transcribes each transmission into Atlas. A change stream fires our rule engine: deterministic, no LLM in the decision. The stop goes to the controller who owns the runway, and {product} says it on the radio."
+      "vo_text": "Same calls, Safety on. ElevenLabs transcribes each call into Atlas. A change stream fires our rules. No LLM decides. The stop goes to the runway's controller, and {product} says it on the radio."
     },
     {
       "id": "audit",
       "start_s": 38,
       "end_s": 54,
-      "vo_text": "And every agent is auditable. Agents can only file intents; three layers block anything else, and every attempt is logged. Switch an agent off and its next intent is refused. Then rewind: the whole event, rebuilt from stored records alone.",
+      "vo_text": "Every agent is auditable. Agents can only file intents; anything else is blocked and logged. Switch an agent off, and its next intent is refused. Then rewind the whole event from stored records.",
       "title": "The AI can stop traffic. It can never clear it."
     },
     {
