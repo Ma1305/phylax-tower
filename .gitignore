@@ -36,3 +36,6 @@ scenarios/*/audio/*
 
 # Process logs (scripts/demo_check.sh, demo scripts)
 logs/
+
+# v2: generated fixture audio
+tools/fixtures/audio/

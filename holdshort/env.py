@@ -1,6 +1,7 @@
 """Load the gitignored .env and report BLOCKED cleanly.
 
-Lookup order: $HOLDSHORT_ENV, then <repo root>/.env, then ~/plane-management/.env
+Lookup order: $HOLDSHORT_ENV, then <repo root>/.env, then ~/plane-management-2/.env (v2),
+then ~/plane-management/.env
 (so git worktrees of the repo find the shared secrets file without a copy).
 Importing this module loads the file into os.environ.
 """
@@ -18,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def _env_file() -> Path:
     if os.environ.get("HOLDSHORT_ENV"):
         return Path(os.environ["HOLDSHORT_ENV"])
-    for p in (ROOT / ".env", Path.home() / "plane-management" / ".env"):
+    for p in (ROOT / ".env", Path.home() / "plane-management-2" / ".env",
+              Path.home() / "plane-management" / ".env"):
         if p.is_file():
             return p
     return ROOT / ".env"
@@ -51,8 +53,8 @@ def require(name: str, where: str) -> str:
 
 
 def mongodb_db_name() -> str:
-    """Database name from MONGODB_DB (default "holdshort")."""
-    return os.environ.get("MONGODB_DB", "").strip() or "holdshort"
+    """Database name from MONGODB_DB (default "holdshort_v2")."""
+    return os.environ.get("MONGODB_DB", "").strip() or "holdshort_v2"
 
 
 URI_HELP = (
