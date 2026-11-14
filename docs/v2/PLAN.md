@@ -91,16 +91,23 @@ advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound 
    `state_events`, `security_events` are insert-only and never expire. Agents do NOT search
    them. Agents search `context`: small, one line per fact, superseded and expired on purpose.
 4. **Modes.** Each agent has `mode`: `reactive` (may only emit `warn`) or `proactive` (may also
-   emit `stop` / `propose_instruction`). `tier` decides approval: `needs_approval` (default) or
-   `autonomous` (only `stop` can run without a controller). The gate enforces both.
+   emit `stop` / `propose_instruction`). `tier` decides approval: `autonomous` lets a `stop` run
+   without a controller, `needs_approval` holds it for the owning controller. The gate enforces
+   both. **Default (decided by the product owner, 13:55): stops are autonomous.** A critical
+   stop executes and is spoken at once; the owning controller is told, not asked, and can lift
+   it. Everything that is not a stop (proposed instructions, lane closures) still waits for the
+   owning controller. Every decision, whoever made it, is an insert-only `decisions` document.
 5. **Routing by ownership.** Every decision carries `lane_id` and `controller_id` = the owner
    of that lane (the supervisor if nobody owns it). Only that controller or a supervisor can
    approve, reject or revoke it.
 6. **Access control, three layers.** (a) validators in Atlas (agent identity = its collection,
    never "clear"), (b) `holdshort/access.py` `ScopedDb`: every agent gets a database handle
    limited to the `read`/`write` lists in its permission document; a denied call raises and is
-   written to `security_events`, (c) optional per-agent Atlas users: if `MONGODB_URI_<AGENT>`
-   is set the agent connects with it.
+   written to `security_events`, (c) per-agent Atlas users generated on demand
+   (`holdshort/identity/`): when Atlas admin credentials are present, each agent's custom role
+   and short-lived database user are created from its permission document through the Atlas
+   Admin API and the agent connects as that user; without the credentials it falls back to the
+   shared connection string (or `MONGODB_URI_<AGENT>` if set).
 7. **History for time travel.** `positions` (time-series collection) keeps every position.
    `state_events` (insert-only) records every change to lane status, permissions, controllers
    and rule sets. Current-state collections are overwritten; history is rebuilt from these two.
