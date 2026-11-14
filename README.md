@@ -55,3 +55,25 @@ uv run uvicorn holdshort.api.app:app --port 8000   # CORS open for localhost ori
   and return 501 until those exist (`HOOKS` in `holdshort/api/app.py`).
 - `GET /health`. The gate runs as its own process; `HOLDSHORT_API_RUN_GATE=1` runs it
   inside the API instead.
+
+## Listener agent
+
+```bash
+uv run python -m holdshort.listener scenarios/laguardia/audio/medium/          # insert into MONGODB_DB
+uv run python -m holdshort.listener scenarios/laguardia/audio/medium/ --check  # + compare with script `expect`
+uv run python -m holdshort.listener --text --dry-run                           # script lines, no insert
+```
+
+- Audio mode (VOICE_ENABLED=true + ELEVENLABS_API_KEY): `clean()` (ElevenLabs voice isolation,
+  passthrough on failure) -> `transcribe()` (ElevenLabs STT, confidence = mean word probability)
+  -> `parse()` -> readback check -> `insert()` (insert-only).
+- Text mode (`--text`, voice disabled, or no clips on disk): lines from `scenarios/laguardia/script.json`,
+  simulated confidence 0.95 (0.55 for lines marked `"unclear": true`).
+- `parse()` labels with the Anthropic LLM (`LLM_API_KEY`, `LLM_MODEL`, default `claude-opus-5-5`,
+  structured JSON output). Without a key it falls back to an offline phraseology labeller
+  (`holdshort/listener/rules.py`); force one with `--labeller llm|rules`.
+  Values are always normalised in code: "Truck one and company" -> TRUCK1, "the jet" -> AC8646, "4" -> "04", "Delta" -> "D".
+- Confidence < 0.8 or an unparseable call -> kind `other`, `verified: false`, transcript kept,
+  `flag: "unclear - say again"`. A "stop" with no callsign -> kind `stop`, `to: "UNKNOWN"`, flagged.
+- `readback`: clearance -> `missing` (awaiting readback), readback -> `matched`/`mismatch` vs the last
+  clearance to that callsign, everything else -> `not_applicable`.

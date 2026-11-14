@@ -82,6 +82,7 @@ def transmissions_schema() -> dict:
             "readback": _enum(c.Readback),
             "verified": BOOL,
             "audio_ref": _nullable(STR),
+            "flag": _nullable(STR),
         },
         # low-confidence transmissions can never be verified
         "anyOf": [
