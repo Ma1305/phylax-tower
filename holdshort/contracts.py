@@ -1,17 +1,16 @@
-"""Hold Short data contracts: the single source of truth for every collection.
+"""Hold Short v2 data contracts: one Pydantic model per collection in docs/v2/CONTRACTS.md.
 
-Rules (from the build plan):
-- Callsigns are uppercase with no spaces (AC8646, TRUCK1, TOWER).
-- Runways are two-digit strings ("04", "13", "22"); taxiways are letters ("D").
-- Timestamps are timezone-aware UTC datetimes, stored as BSON dates.
+Rules:
+- Callsigns are uppercase with no spaces (AC8646, TRUCK1); stations TOWER / GROUND / OPS.
+- Timestamps are timezone-aware UTC datetimes (wall-clock), stored as BSON dates.
+- Positions are GeoJSON Points ``{"type": "Point", "coordinates": [lon, lat]}``.
 - Agents never act: they insert intents. An intent action is never "clear".
 
 The $jsonSchema validators in scripts/setup_atlas.py read the enums below with
-``typing.get_args`` so the models and the database never drift apart. If you add
-a field here, add it to the validator too.
+``typing.get_args`` so the models and the database never drift apart.
 
 Write a model to MongoDB with ``to_mongo(model)`` (uses the "from" alias, keeps
-datetimes and ObjectIds as BSON types).
+datetimes and ObjectIds as BSON types, and drops ``_id`` when it is None).
 """
 
 from __future__ import annotations
@@ -33,36 +32,34 @@ from pydantic import (
 
 # --------------------------------------------------------------------------- enums
 
-TransmissionKind = Literal["clearance", "request", "readback", "stop", "other"]
-"""What a radio call is."""
-
+LaneKind = Literal["runway", "taxiway", "apron"]
+LaneState = Literal["clear", "reserved", "occupied", "conflict", "closed"]
+ObjectKind = Literal["aircraft", "vehicle", "person", "unknown"]
+ObjectStatus = Literal["airborne", "ground"]
+StreamKind = Literal["tower", "ground", "ops", "approach", "other"]
+ControllerRole = Literal["local", "ground", "supervisor"]
+TransmissionKind = Literal["clearance", "request", "readback", "report", "stop", "other"]
 Instruction = Literal[
     "land", "takeoff", "cross", "hold_short", "line_up_wait", "taxi", "go_around", "none"
 ]
-"""The instruction carried by a radio call ("none" when there is no instruction)."""
-
 Readback = Literal["matched", "mismatch", "missing", "not_applicable"]
-"""Whether the receiving station read the instruction back correctly."""
-
-AgentName = Literal["listener", "weather", "safety", "procedures"]
-"""Agents that write intents. Agent identity is the collection it writes to."""
-
-PermissionAgent = Literal["listener", "weather", "safety", "procedures", "system"]
-"""Permission switches: one per agent plus the "system" master switch."""
-
-IntentAction = Literal[
-    "stop", "propose_instruction", "close_runway", "reopen_runway", "set_rule_set"
-]
-"""What an agent asks the action gate to do. Never "clear": the AI cannot clear traffic.
-
-``set_rule_set`` (weather agent): proposal_text holds the rule set version to activate.
-"""
-
-DecisionOutcome = Literal["executed", "rejected", "pending_approval", "revoked"]
-"""What the action gate decided for an intent."""
-
+AgentName = Literal["listener", "safety", "procedures", "weather"]
+PermissionAgent = Literal["listener", "safety", "procedures", "weather", "system"]
+AgentMode = Literal["reactive", "proactive"]
 PermissionTier = Literal["autonomous", "needs_approval", "never"]
-"""How much an agent may do without a controller."""
+IntentAction = Literal[
+    "warn", "stop", "propose_instruction", "close_lane", "reopen_lane", "set_rule_set"
+]
+"""What an agent asks the gate to do. Never "clear": the AI cannot clear traffic."""
+Severity = Literal["info", "caution", "warning", "critical"]
+DecisionOutcome = Literal["executed", "rejected", "pending_approval", "revoked"]
+ClipStatus = Literal["queued", "processing", "done", "failed"]
+Direction = Literal["in", "out"]
+
+ContextKind = Literal["clearance", "request", "report", "alert", "weather", "note"]
+StateEventKind = Literal["lane_status", "permission", "controller", "rule_set", "object_removed"]
+SecurityEventKind = Literal["validator_rejected", "read_denied", "write_denied", "not_lane_owner"]
+SimRunKind = Literal["normal", "incident"]
 
 AGENTS_WITH_INTENTS: tuple[str, ...] = ("safety", "procedures", "weather")
 """Agents that have their own intents_<agent> collection."""
@@ -70,19 +67,23 @@ AGENTS_WITH_INTENTS: tuple[str, ...] = ("safety", "procedures", "weather")
 CONFIDENCE_VERIFIED_MIN = 0.8
 """A transmission with confidence below this can never be marked verified."""
 
+OBJECT_TTL_S = 120
+"""objects.expires_at = updated_at + OBJECT_TTL_S."""
+
+TOWER_ID = "LGA"
+DB_NAME = "holdshort_v2"
+STATIONS: tuple[str, ...] = ("TOWER", "GROUND", "OPS")
+UNKNOWN_SPEAKER = "UNKNOWN"
+HOLDSHORT = "HOLDSHORT"
+
 # --------------------------------------------------------------------- primitives
 
 CALLSIGN_PATTERN = r"^[A-Z0-9]+$"
 RUNWAY_PATTERN = r"^[0-3][0-9]$"
 
 Callsign = Annotated[str, StringConstraints(pattern=CALLSIGN_PATTERN)]
-"""Uppercase callsign without spaces, e.g. "AC8646", "TRUCK1", "TOWER"."""
-
 Runway = Annotated[str, StringConstraints(pattern=RUNWAY_PATTERN)]
-"""Two-digit runway designator, e.g. "04"."""
-
 UtcDatetime = AwareDatetime
-"""Timezone-aware datetime (use UTC)."""
 
 
 def _to_object_id(v: Any) -> Any:
@@ -101,86 +102,309 @@ DocId = Annotated[
 
 
 class _Model(BaseModel):
-    """Base: ignores Mongo's ``_id`` on read, allows ObjectId fields."""
-
-    model_config = ConfigDict(
-        extra="ignore", populate_by_name=True, arbitrary_types_allowed=True
-    )
+    model_config = ConfigDict(extra="ignore", populate_by_name=True, arbitrary_types_allowed=True)
 
 
-# ------------------------------------------------------------------------- models
+class Point(_Model):
+    type: Literal["Point"] = "Point"
+    coordinates: list[float] = Field(min_length=2, max_length=3, description="[lon, lat]")
+
+
+class LineString(_Model):
+    type: Literal["LineString"] = "LineString"
+    coordinates: list[list[float]]
+
+
+class Polygon(_Model):
+    type: Literal["Polygon"] = "Polygon"
+    coordinates: list[list[list[float]]]
+
+
+# ------------------------------------------------------------------------- world
+
+
+class Tower(_Model):
+    id: str = Field(alias="_id")
+    name: str
+    icao: str
+    center: Point
+
+
+class Lane(_Model):
+    id: str = Field(alias="_id")
+    tower_id: str
+    kind: LaneKind
+    name: str
+    designators: list[str] = Field(default_factory=list)
+    width_m: float | None = None
+    centerline: LineString | None = None
+    area: Polygon
+    crosses: list[str] = Field(default_factory=list)
+
+
+class HoldPoint(_Model):
+    id: str = Field(alias="_id")
+    tower_id: str
+    lane_id: str
+    protects: str
+    position: Point
+
+
+class Controller(_Model):
+    id: str = Field(alias="_id")
+    tower_id: str
+    name: str
+    role: ControllerRole
+    lanes: list[str] = Field(default_factory=list)
+    streams: list[str] = Field(default_factory=list)
+    active: bool = True
+
+
+class Stream(_Model):
+    id: str = Field(alias="_id")
+    tower_id: str
+    name: str
+    kind: StreamKind
+    frequency_mhz: float | None = None
+    controller_id: str
+    station: str
+
+
+# -------------------------------------------------------------------- live state
+
+
+class Clearance(_Model):
+    instruction: Instruction
+    lane_id: str | None = None
+    at: str | None = None
+    since: UtcDatetime
+    transmission_id: DocId | None = None
+
+
+class TrackedObject(_Model):
+    """collection: objects (TTL on expires_at)."""
+
+    id: str = Field(alias="_id")
+    tower_id: str
+    kind: ObjectKind
+    callsign: Callsign | None = None
+    label: str | None = None
+    status: ObjectStatus
+    position: Point
+    alt_ft: float | None = None
+    heading_deg: float | None = None
+    speed_kt: float | None = None
+    lane_id: str | None = None
+    clearance: Clearance | None = None
+    hold_short: bool = False
+    updated_at: UtcDatetime
+    expires_at: UtcDatetime
+
+
+class Reservation(_Model):
+    object_id: str | None = None
+    callsign: str
+    instruction: Instruction
+    since: UtcDatetime
+    transmission_id: DocId | None = None
+
+
+class LaneStatus(_Model):
+    id: str = Field(alias="_id")
+    tower_id: str
+    controller_id: str
+    state: LaneState
+    occupants: list[str] = Field(default_factory=list)
+    reservations: list[Reservation] = Field(default_factory=list)
+    reason: str | None = None
+    updated_at: UtcDatetime
+
+
+class SourceRef(_Model):
+    coll: str
+    id: Any
+
+
+class ContextItem(_Model):
+    """collection: context (TTL on expires_at)."""
+
+    id: DocId | None = Field(default=None, alias="_id")
+    tower_id: str
+    kind: ContextKind
+    summary: str
+    callsigns: list[str] = Field(default_factory=list)
+    lane_ids: list[str] = Field(default_factory=list)
+    stream_id: str | None = None
+    instruction: Instruction | None = None
+    readback: Readback | None = None
+    flag: str | None = None
+    source: SourceRef
+    t: UtcDatetime
+    superseded_by: DocId | None = None
+    expires_at: UtcDatetime
+
+
+class Permission(_Model):
+    id: PermissionAgent = Field(alias="_id")
+    agent: PermissionAgent
+    enabled: bool
+    mode: AgentMode
+    tier: PermissionTier
+    read: list[str] = Field(default_factory=list)
+    write: list[str] = Field(default_factory=list)
+    by: str
+    changed_at: UtcDatetime
+
+
+class Rule(_Model):
+    id: str
+    description: str
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class RuleSet(_Model):
+    version: str
+    name: str
+    active: bool
+    rules: list[Rule]
+
+
+class AgentState(_Model):
+    id: str = Field(alias="_id")
+    resume_token: dict[str, Any] | None = None
+    updated_at: UtcDatetime
+
+
+# -------------------------------------------------------------------------- logs
+
+
+class PositionMeta(_Model):
+    object_id: str
+    tower_id: str
+    kind: ObjectKind
+    callsign: str | None = None
+
+
+class PositionSample(_Model):
+    """collection: positions (time series)."""
+
+    t: UtcDatetime
+    meta: PositionMeta
+    position: Point
+    alt_ft: float | None = None
+    heading_deg: float | None = None
+    speed_kt: float | None = None
+    status: ObjectStatus
+    lane_id: str | None = None
+
+
+class StateEvent(_Model):
+    id: DocId | None = Field(default=None, alias="_id")
+    t: UtcDatetime
+    tower_id: str
+    kind: StateEventKind
+    ref: str
+    doc: dict[str, Any] | None = None
+    by: str | None = None
+
+
+class AudioClip(_Model):
+    id: DocId | None = Field(default=None, alias="_id")
+    tower_id: str
+    stream_id: str
+    direction: Direction
+    t_start: UtcDatetime
+    t_end: UtcDatetime
+    duration_s: float = Field(ge=0)
+    audio_id: DocId | None = None
+    mime: str | None = None
+    truth_text: str | None = None
+    speaker: str | None = None
+    status: ClipStatus
+    transmission_id: DocId | None = None
+    error: str | None = None
+    created_at: UtcDatetime
 
 
 class Transmission(_Model):
-    """One radio call, as heard and parsed by the listener (collection: transmissions)."""
-
-    t: UtcDatetime = Field(description="Scenario time of the call (UTC).")
-    from_: Callsign = Field(alias="from", description="Station that transmitted.")
-    to: Callsign = Field(description="Station addressed.")
+    id: DocId | None = Field(default=None, alias="_id")
+    tower_id: str
+    stream_id: str
+    controller_id: str
+    t: UtcDatetime
+    t_end: UtcDatetime | None = None
+    direction: Direction
+    from_: Callsign = Field(alias="from")
+    to: Callsign
     kind: TransmissionKind
     instruction: Instruction
     runway: Runway | None = None
-    at: str | None = Field(default=None, description='Taxiway / intersection, e.g. "D".')
-    transcript: str = Field(description="Text of the call.")
-    confidence: float = Field(ge=0.0, le=1.0, description="Speech/parse confidence, 0..1.")
+    at: str | None = None
+    lane_id: str | None = None
+    transcript: str
+    confidence: float = Field(ge=0.0, le=1.0)
     readback: Readback
-    verified: bool = Field(
-        default=False,
-        description=f"Trusted for safety checks. Always False if confidence < "
-        f"{CONFIDENCE_VERIFIED_MIN}.",
-    )
-    audio_ref: str | None = Field(default=None, description="Path/URL of the audio clip.")
-    flag: str | None = Field(
-        default=None,
-        description='Why a human should look at this call, e.g. "unclear - say again".',
-    )
+    verified: bool = False
+    flag: str | None = None
+    clip_id: DocId | None = None
+    audio_id: DocId | None = None
+    synthetic: bool = False
+    decision_id: DocId | None = None
 
     @model_validator(mode="after")
     def _low_confidence_not_verified(self) -> Transmission:
         if self.verified and self.confidence < CONFIDENCE_VERIFIED_MIN:
-            raise ValueError(
-                f"verified must be False when confidence < {CONFIDENCE_VERIFIED_MIN}"
-            )
+            raise ValueError(f"verified must be False when confidence < {CONFIDENCE_VERIFIED_MIN}")
         return self
 
 
 class Intent(_Model):
-    """A request from an agent to the action gate (collections: intents_<agent>)."""
+    """collections: intents_safety / intents_procedures / intents_weather."""
 
+    id: DocId | None = Field(default=None, alias="_id")
     t: UtcDatetime
+    tower_id: str
     agent: AgentName = Field(description="Must equal the agent of the collection it is in.")
     action: IntentAction
-    target: list[Callsign] = Field(default_factory=list, description="Callsigns affected.")
+    severity: Severity
+    target: list[Callsign] = Field(default_factory=list)
+    object_ids: list[str] = Field(default_factory=list)
+    lane_id: str | None = None
     runway: Runway | None = None
-    reason: str = Field(description="Human-readable why, shown in the audit timeline.")
-    conflicts_with: str | None = Field(
-        default=None, description="What this intent guards against (e.g. a callsign)."
-    )
-    proposal_text: str | None = Field(
-        default=None, description="For propose_instruction: the instruction text proposed."
-    )
+    stream_id: str | None = None
+    reason: str
+    conflicts_with: str | None = None
+    proposal_text: str | None = None
+    detail: str | None = None
 
 
 class AuthorizedBy(_Model):
-    """Which permission and rule set allowed a decision."""
-
-    permission_id: DocId
-    rule_set_version: str
+    permission_id: str
+    rule_set_version: str | None = None
 
 
 class Decision(_Model):
-    """The action gate's verdict on one intent (collection: decisions, insert-only)."""
+    """collection: decisions (insert-only)."""
 
+    id: DocId | None = Field(default=None, alias="_id")
     t: UtcDatetime
+    tower_id: str
     intent_id: DocId
     agent: AgentName
     intent_action: IntentAction
+    severity: Severity
     outcome: DecisionOutcome
-    rule: str = Field(description='Rule id or reason code, e.g. "agent_disabled".')
+    rule: str
+    lane_id: str | None = None
+    controller_id: str
+    stream_id: str | None = None
+    text: str | None = None
+    target: list[str] = Field(default_factory=list)
+    mode: AgentMode
     authorized_by: AuthorizedBy
-    approved_by: str | None = Field(default=None, description="Controller who approved.")
-    revokes: DocId | None = Field(default=None, description="Decision this one revokes.")
-    notified: list[str] = Field(default_factory=list, description="Who was told.")
+    approved_by: str | None = None
+    revokes: DocId | None = None
+    notified: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _executed_proposal_needs_approval(self) -> Decision:
@@ -193,88 +417,44 @@ class Decision(_Model):
         return self
 
 
-class Permission(_Model):
-    """One agent's switch and tier (collection: permissions, unique on agent)."""
-
-    agent: PermissionAgent
-    enabled: bool
-    tier: PermissionTier
-    by: str = Field(description="Who last changed it.")
-    changed_at: UtcDatetime
-
-
-class Rule(_Model):
-    """One rule in a rule set."""
-
-    id: str
-    description: str
-    params: dict[str, Any] = Field(default_factory=dict)
-
-
-class RuleSet(_Model):
-    """A versioned set of rules; exactly one should be active (collection: rules)."""
-
-    version: str
-    name: str
-    active: bool
-    rules: list[Rule]
-
-
-class Position(_Model):
-    """A simple map position (WGS84 degrees)."""
-
-    lat: float
-    lon: float
-
-
-class FlightState(_Model):
-    """Latest known state of one callsign (collection: flight_state, TTL on expires_at)."""
-
-    callsign: Callsign
-    current_clearance: Instruction | None = None
-    runway: Runway | None = None
-    hold_short: bool = Field(default=False, description="Told to hold short / stopped.")
-    position: Position | None = Field(
-        default=None, description="Simulated map position, written by the scenario runner."
-    )
-    updated_at: UtcDatetime
-    expires_at: UtcDatetime = Field(description="TTL: the document is deleted after this time.")
-
-
-class Metar(_Model):
-    """One weather observation emitted by the scenario runner (collection: metar)."""
-
-    t: UtcDatetime
-    visibility_sm: float = Field(ge=0, description="Visibility in statute miles.")
-    wind: str = Field(description='Wind group, e.g. "03012KT".')
-
-
 class SecurityEvent(_Model):
-    """A blocked write attempt by a misbehaving agent (collection: security_events, insert-only)."""
+    """collection: security_events (insert-only). One of agent / controller_id is set."""
 
-    t: UtcDatetime = Field(description="Wall-clock time of the attempt (UTC).")
-    agent: AgentName
-    attempted: str = Field(description='What it tried, e.g. "intents_procedures action=clear".')
-    error_code: int | None = Field(
-        default=None, description="MongoDB error code (121 = document failed validation)."
-    )
-    error: str = Field(description="Error message returned by Atlas.")
+    id: DocId | None = Field(default=None, alias="_id")
+    t: UtcDatetime
+    agent: str | None = None
+    controller_id: str | None = None
+    kind: SecurityEventKind
+    attempted: str
+    error_code: int | None = None
+    error: str | None = None
 
 
-class ScenarioRun(_Model):
-    """One scenario playback (collection: scenario_runs, insert-only).
+class Weather(_Model):
+    id: DocId | None = Field(default=None, alias="_id")
+    t: UtcDatetime
+    tower_id: str
+    visibility_sm: float = Field(ge=0)
+    wind: str | None = None
+    raw: str | None = None
 
-    ``_id`` is the run id: the runner's marker ObjectId, also the LangGraph thread_id
-    of the safety/procedures checkpoints for that run.
-    """
 
-    scenario: str = Field(description='Scenario name, e.g. "laguardia".')
-    started_at: UtcDatetime = Field(description="Wall-clock start (UTC).")
-    safety_enabled: bool
-    speed: float = Field(gt=0)
-    mode: str = Field(description='"text" or "audio".')
+class SimRun(_Model):
+    id: DocId | None = Field(default=None, alias="_id")
+    tower_id: str
+    scenario: str
+    kind: SimRunKind
+    note: str | None = None
+    started_at: UtcDatetime
+    ended_at: UtcDatetime | None = None
 
 
 def to_mongo(model: BaseModel) -> dict[str, Any]:
-    """Dump a model to a dict ready for insert (aliases applied, BSON types kept)."""
-    return model.model_dump(by_alias=True, mode="python")
+    """Dump a model to a dict ready for insert (aliases applied, BSON types kept).
+
+    A None ``_id`` is dropped so MongoDB assigns an ObjectId.
+    """
+    doc = model.model_dump(by_alias=True, mode="python")
+    if "_id" in doc and doc["_id"] is None:
+        del doc["_id"]
+    return doc

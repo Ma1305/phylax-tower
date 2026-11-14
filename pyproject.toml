@@ -13,6 +13,12 @@ dependencies = [
     "uvicorn[standard]>=0.54.0",
     "langgraph>=1.2.22",
     "langgraph-checkpoint-mongodb>=0.5.1",
+    "python-multipart>=0.0.33",
+    "shapely>=2.2.0",
+    "httpx>=0.28.1",
+    "langchain-anthropic>=1.7.10",
+    "websockets>=17.4",
+    "pytest-timeout>=2.4.0",
 ]
 
 [build-system]
@@ -32,7 +38,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-extend-exclude = ["web"]
+extend-exclude = []
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
