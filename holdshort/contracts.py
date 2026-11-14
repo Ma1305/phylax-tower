@@ -257,6 +257,20 @@ class SecurityEvent(_Model):
     error: str = Field(description="Error message returned by Atlas.")
 
 
+class ScenarioRun(_Model):
+    """One scenario playback (collection: scenario_runs, insert-only).
+
+    ``_id`` is the run id: the runner's marker ObjectId, also the LangGraph thread_id
+    of the safety/procedures checkpoints for that run.
+    """
+
+    scenario: str = Field(description='Scenario name, e.g. "laguardia".')
+    started_at: UtcDatetime = Field(description="Wall-clock start (UTC).")
+    safety_enabled: bool
+    speed: float = Field(gt=0)
+    mode: str = Field(description='"text" or "audio".')
+
+
 def to_mongo(model: BaseModel) -> dict[str, Any]:
     """Dump a model to a dict ready for insert (aliases applied, BSON types kept)."""
     return model.model_dump(by_alias=True, mode="python")

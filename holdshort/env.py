@@ -28,7 +28,7 @@ ENV_FILE = _env_file()
 load_dotenv(ENV_FILE)
 
 _URI_RE = re.compile(r"mongodb(\+srv)?://[^\s'\"]+")
-_SECRET_NAMES = ("MONGODB_URI", "LLM_API_KEY", "ELEVENLABS_API_KEY")
+_SECRET_NAMES = ("MONGODB_URI", "LLM_API_KEY", "ELEVENLABS_API_KEY", "LANGSMITH_API_KEY")
 
 
 def redact(text: object) -> str:

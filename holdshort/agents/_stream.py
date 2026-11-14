@@ -26,7 +26,8 @@ def now() -> datetime:
 class StreamAgent:
     """Watches ``collection`` for inserts and calls ``handle(full_document)`` for each.
 
-    Starts at "now" (agents react to live traffic, they do not replay history).
+    Starts at "now" (agents react to live traffic, they do not replay history);
+    ``on_ready()`` runs once the stream is open and before READY is logged.
     ``run()`` blocks until ``stop()``; ``ready`` is set once the stream is open.
     """
 
@@ -47,6 +48,20 @@ class StreamAgent:
     def handle(self, doc: dict[str, Any]) -> None:  # pragma: no cover - overridden
         raise NotImplementedError
 
+    def process(self, doc: dict[str, Any]) -> Any:
+        """One document from the stream. GraphAgent overrides this to checkpoint it."""
+        return self.handle(doc)
+
+    def on_ready(self) -> None:
+        """Called once the change stream is open (GraphAgent resumes + catches up here)."""
+
+    def _safe_process(self, doc: dict[str, Any]) -> None:
+        try:
+            self.process(doc)
+        except Exception:
+            self.log.exception("failed to handle %s", doc.get("_id"))
+        self.processed += 1
+
     def stop(self) -> None:
         self._stop.set()
 
@@ -54,17 +69,14 @@ class StreamAgent:
         with self.db[self.collection].watch(
             self.pipeline(), max_await_time_ms=self.max_await_ms
         ) as stream:
+            self.on_ready()
             self.ready.set()
             self.log.info("READY %s watching %s.%s", self.name, self.db.name, self.collection)
             while not self._stop.is_set():
                 change = stream.try_next()
                 if change is None:
                     continue
-                try:
-                    self.handle(change["fullDocument"])
-                except Exception:
-                    self.log.exception("failed to handle %s", change.get("documentKey"))
-                self.processed += 1
+                self._safe_process(change["fullDocument"])
         self.log.info("%s stopped", self.name)
 
 

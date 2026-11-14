@@ -9,6 +9,8 @@ dependencies = [
     "anthropic>=0.70",
     "requests>=2.32",
     "pydantic>=2",
+    "langgraph>=1.2.22",
+    "langgraph-checkpoint-mongodb>=0.5.1",
 ]
 
 [build-system]
