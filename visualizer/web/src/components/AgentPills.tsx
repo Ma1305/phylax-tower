@@ -49,7 +49,7 @@ export function AgentSettings({ ds, permissions, agentState, by, readOnly }: { d
   return (
     <div className="settings">
       {readOnly && <p className="set-note">History: settings are read-only.</p>}
-      <div className={`set-row master ${masterOn ? '' : 'off'}`}>
+      <div className={`set-row set-master ${masterOn ? '' : 'off'}`}>
         <button type="button" role="switch" aria-checked={masterOn} aria-label="Master switch" disabled={readOnly || !master} className={`toggle ${masterOn ? 'on' : ''}`} onClick={() => set('system', { enabled: !masterOn })}>
           <span />
         </button>
