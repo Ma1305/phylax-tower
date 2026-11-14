@@ -1,186 +1,152 @@
-"""Safety agent: transmissions -> rule engine -> stop intents in intents_safety.
+"""Safety agent v2: lane_status / context changes -> deterministic rules -> intents_safety.
 
     uv run python -m holdshort.agents.safety_agent [--db NAME]
 
-For every inserted transmission (in order) it
+Triggers: change streams on ``lane_status`` (kept by the state service) and ``context``
+(readback mismatches). Every read goes through ``scoped_db(db, "safety")``, so the agent can
+only see what its permission document lists (context, objects, lane_status, lanes,
+controllers, streams, rules, permissions, weather) and can only write ``intents_safety``.
 
-1. loads the AirfieldState from flight_state (so a scenario reset, which clears
-   flight_state, also resets the agent, and a restarted agent picks up where it was);
-2. runs ``engine.evaluate`` against the active rule set (state BEFORE the call);
-3. inserts each resulting stop intent into intents_safety (never acts itself);
-4. folds the call into the state (``engine.apply_transmission``) and persists the
-   changed callsigns to flight_state with a TTL ``expires_at``.
-
-Callsigns with ``hold_short`` set (held by a stop) are not active on a runway.
-
-Inside a scenario run the four steps are a LangGraph graph (evaluate -> emit -> persist)
-checkpointed to Atlas with thread_id = run id (see ``holdshort.agents._graph``): a killed
-safety agent resumes from its checkpoint and only processes calls it has not seen. The
-decision itself stays the deterministic rule engine; there is no LLM in it.
+Per new conflict: one ``warn``; in proactive mode and severity critical also one ``stop`` for
+the party that can stop safely. Mode is read from the permission document on every event.
+Conflicts are de-duplicated by key (rule, lane, sorted targets) while they last; the active
+keys live in ``agent_state`` (``_id`` = ``safety_agent``, field ``active_conflicts``) next to
+the resume token, so a restart does not repeat them. No LLM.
 """
 
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta
-from types import MappingProxyType
-from typing import Any, TypedDict
+from datetime import UTC, datetime
+from typing import Any
 
-from bson import ObjectId
 from pymongo.database import Database
 
-from holdshort.agents._graph import GraphAgent
-from holdshort.agents._stream import main, now
-from holdshort.contracts import FlightState, Intent, RuleSet, Transmission, to_mongo
+from holdshort.access import AccessDenied, scoped_db
+from holdshort.agents._stream import StreamAgent, main
+from holdshort.contracts import TOWER_ID, Intent, to_mongo
 from holdshort.safety.engine import (
-    RUNWAY_INSTRUCTIONS,
-    AirfieldState,
-    Clearance,
-    apply_transmission,
-    evaluate,
+    Conflict,
+    LaneView,
+    intents_for,
+    lane_conflicts,
+    lane_scope,
+    new_conflicts,
+    readback_conflicts,
 )
 
-FLIGHT_STATE_TTL = timedelta(hours=1)
-"""flight_state documents expire this long (wall clock) after their last update."""
-
-NOT_TRAFFIC = frozenset({"TOWER", "UNKNOWN"})
+AGENT = "safety"
 
 
-def load_state(db: Database) -> AirfieldState:
-    """Rebuild the active runway clearances from flight_state."""
-    runways: dict[str, list[Clearance]] = {}
-    query = {
-        "current_clearance": {"$in": sorted(RUNWAY_INSTRUCTIONS)},
-        "runway": {"$ne": None},
-        "hold_short": {"$ne": True},
-    }
-    for doc in db.flight_state.find(query).sort("updated_at", 1):
-        runways.setdefault(doc["runway"], []).append(
-            Clearance(doc["callsign"], doc["current_clearance"], doc["runway"], doc["updated_at"])
-        )
-    return AirfieldState(MappingProxyType({r: tuple(cs) for r, cs in runways.items()}))
+class SafetyAgent(StreamAgent):
+    name = "safety_agent"
+    watch_collections = ["lane_status", "context"]
+    operation_types = ("insert", "update", "replace")
 
+    def __init__(self, db: Database, **kwargs: Any):
+        super().__init__(db, **kwargs)
+        self.scoped = scoped_db(db, AGENT)
+        self.emitted: list[Intent] = []
 
-def active_rule_set(db: Database) -> RuleSet | None:
-    doc = db.rules.find_one({"active": True}, sort=[("version", 1)])
-    return RuleSet.model_validate(doc) if doc else None
+    # ------------------------------------------------------------------ reads (scoped)
 
+    def rule_ids(self) -> set[str]:
+        doc = self.scoped.rules.find_one({"active": True}, sort=[("version", 1)])
+        return {r["id"] for r in (doc or {}).get("rules") or []}
 
-def _clearance(state: AirfieldState, callsign: str) -> Clearance | None:
-    cs = state.clearances_of(callsign)
-    return cs[-1] if cs else None
+    def mode(self) -> str:
+        p = self.scoped.permissions.find_one({"_id": AGENT}) or {}
+        return p.get("mode") or "reactive"
 
+    def lane_view(self, lane_id: str) -> LaneView:
+        doc = self.scoped.lanes.find_one({"_id": lane_id}) or {}
+        return LaneView(lane_id, doc.get("kind") or "taxiway", doc.get("designators") or [])
 
-def state_updates(
-    before: AirfieldState, after: AirfieldState, tx: Transmission
-) -> dict[str, dict[str, Any]]:
-    """flight_state fields to $set per callsign whose state changed because of ``tx``."""
-    callsigns = {
-        c.callsign
-        for s in (before, after)
-        for cs in s.runways.values()
-        for c in cs
-    }
-    callsigns.add(tx.to)
-    out: dict[str, dict[str, Any]] = {}
-    for cs in sorted(callsigns - NOT_TRAFFIC):
-        old, new = _clearance(before, cs), _clearance(after, cs)
-        if cs != tx.to and old == new:
-            continue
-        if new is not None:
-            fields = {"current_clearance": new.instruction, "runway": new.runway,
-                      "hold_short": False}
-        elif cs == tx.to and tx.kind in ("clearance", "stop"):
-            fields = {
-                "current_clearance": None if tx.instruction == "none" else tx.instruction,
-                "runway": tx.runway,
-                "hold_short": tx.kind == "stop" or tx.instruction == "hold_short",
-            }
-        elif cs == tx.to:
-            continue  # requests / readbacks addressed to traffic change nothing
-        else:
-            fields = {"current_clearance": None, "runway": None, "hold_short": False}
-        out[cs] = fields
-    return out
+    def objects_for(self, ls: dict) -> dict[str, dict]:
+        ids = list(ls.get("occupants") or [])
+        ids += [r["object_id"] for r in ls.get("reservations") or [] if r.get("object_id")]
+        cs = [r["callsign"] for r in ls.get("reservations") or [] if r.get("callsign")]
+        q = {"$or": [{"_id": {"$in": ids}}, {"callsign": {"$in": cs}}]}
+        return {o["_id"]: o for o in self.scoped.objects.find(q)}
 
+    def stream_for(self, c: Conflict, controller_id: str | None) -> str | None:
+        sp = c.stop_party
+        if sp and sp.callsign:
+            item = self.scoped.context.find_one(
+                {"callsigns": sp.callsign, "stream_id": {"$ne": None}}, sort=[("t", -1)])
+            if item:
+                return item["stream_id"]
+        if controller_id:
+            ctl = self.scoped.controllers.find_one({"_id": controller_id}) or {}
+            if ctl.get("streams"):
+                return ctl["streams"][0]
+        return None
 
-def persist(db: Database, updates: dict[str, dict[str, Any]], t: datetime) -> None:
-    expires = now() + FLIGHT_STATE_TTL
-    for cs, fields in updates.items():
-        doc = to_mongo(FlightState(callsign=cs, updated_at=t, expires_at=expires, **fields))
-        doc.pop("position")  # owned by the scenario runner
-        db.flight_state.update_one({"callsign": cs}, {"$set": doc}, upsert=True)
+    # ---------------------------------------------------- dedupe keys (agent_state)
 
+    def load_keys(self) -> set[str]:
+        st = self.db.agent_state.find_one({"_id": self.name}) or {}
+        return set(st.get("active_conflicts") or [])
 
-class SafetyGraphState(TypedDict, total=False):
-    """Checkpointed per run (JSON-safe: ids are strings, models are JSON dicts)."""
+    def save_keys(self, keys: set[str]) -> None:
+        self.db.agent_state.update_one(
+            {"_id": self.name},
+            {"$set": {"active_conflicts": sorted(keys), "updated_at": datetime.now(UTC)}},
+            upsert=True)
 
-    tx_id: str
-    tx: dict[str, Any]
-    intents: list[dict[str, Any]]
-    updates: dict[str, dict[str, Any]]
-    intent_ids: list[str]
-    last_id: str
-    processed: int
-    stops: int
+    # ----------------------------------------------------------------------- handle
 
+    def handle(self, doc: dict[str, Any], coll: str | None = None) -> list[Intent]:
+        if coll == "context":
+            if doc.get("readback") != "mismatch":
+                return []
+            return self.evaluate(readback_conflicts(doc, self.rule_ids()), [],
+                                 doc.get("tower_id") or TOWER_ID, None)
+        return self.evaluate_lane(doc)
 
-class SafetyAgent(GraphAgent):
-    name = "safety"
-    collection = "transmissions"
-    state_schema = SafetyGraphState
+    def evaluate_lane(self, ls: dict) -> list[Intent]:
+        if not ls.get("_id"):
+            return []
+        lane = self.lane_view(ls["_id"])
+        conflicts = lane_conflicts(ls, self.objects_for(ls), lane, self.rule_ids())
+        return self.evaluate(conflicts, lane_scope(lane.id), ls.get("tower_id") or TOWER_ID,
+                             ls.get("controller_id"))
 
-    # -- the deterministic steps (shared by handle() and the graph)
+    def evaluate(self, conflicts: list[Conflict], scope: list[str], tower_id: str,
+                 controller_id: str | None) -> list[Intent]:
+        active = self.load_keys()
+        fresh, keys = new_conflicts(conflicts, active, scope)
+        out: list[Intent] = []
+        if fresh:
+            mode, t = self.mode(), datetime.now(UTC)
+            for c in fresh:
+                ctl = controller_id
+                if ctl is None and c.lane_id:
+                    ls = self.scoped.lane_status.find_one({"_id": c.lane_id}) or {}
+                    ctl = ls.get("controller_id")
+                for intent in intents_for(c, mode, tower_id=tower_id, t=t,
+                                          stream_id=self.stream_for(c, ctl)):
+                    self.scoped.intents_safety.insert_one(to_mongo(intent))
+                    self.log.info("%s %s %s %s: %s", intent.action, intent.severity,
+                                  intent.reason, intent.target, intent.detail)
+                    out.append(intent)
+        if keys != active:
+            self.save_keys(keys)
+        self.emitted.extend(out)
+        return out
 
-    def evaluate_tx(self, tx: Transmission) -> tuple[list[Intent], dict[str, dict[str, Any]]]:
-        state = load_state(self.db)
-        rules = active_rule_set(self.db)
-        intents: list[Intent] = []
-        if rules is None:
-            self.log.warning("no active rule set; not evaluating %s", tx.transcript)
-        else:
-            intents = evaluate(tx, state, rules)
-        return intents, state_updates(state, apply_transmission(state, tx), tx)
-
-    def emit(self, intents: list[Intent]) -> list[ObjectId]:
-        ids = []
-        for intent in intents:
-            iid = self.db.intents_safety.insert_one(to_mongo(intent)).inserted_id
-            ids.append(iid)
-            self.log.info("intent %s: stop %s (%s; %s)", iid, intent.target, intent.reason,
-                          intent.conflicts_with)
-        return ids
-
-    def handle(self, doc: dict[str, Any]) -> list[Intent]:
-        tx = Transmission.model_validate(doc)
-        intents, updates = self.evaluate_tx(tx)
-        self.emit(intents)
-        persist(self.db, updates, tx.t)
-        return intents
-
-    # -- graph
-
-    def graph_input(self, doc: dict[str, Any]) -> SafetyGraphState:
-        tx = Transmission.model_validate(doc)
-        return {"tx_id": str(doc["_id"]), "tx": tx.model_dump(mode="json", by_alias=True)}
-
-    def nodes(self):
-        return [("evaluate", self._n_evaluate), ("emit", self._n_emit),
-                ("persist", self._n_persist)]
-
-    def _n_evaluate(self, s: SafetyGraphState) -> SafetyGraphState:
-        intents, updates = self.evaluate_tx(Transmission.model_validate(s["tx"]))
-        return {"intents": [i.model_dump(mode="json") for i in intents], "updates": updates}
-
-    def _n_emit(self, s: SafetyGraphState) -> SafetyGraphState:
-        ids = self.emit([Intent.model_validate(i) for i in s.get("intents", [])])
-        return {"intent_ids": [str(i) for i in ids],
-                "stops": s.get("stops", 0) + len(ids)}
-
-    def _n_persist(self, s: SafetyGraphState) -> SafetyGraphState:
-        tx = Transmission.model_validate(s["tx"])
-        persist(self.db, s.get("updates", {}), tx.t)
-        return {"last_id": s["tx_id"], "processed": s.get("processed", 0) + 1}
+    def on_ready(self) -> None:
+        """Catch up on conflicts that already exist (keys in agent_state stop repeats)."""
+        try:
+            lanes = list(self.scoped.lane_status.find({}))
+        except AccessDenied as e:
+            self.log.warning("startup catch-up skipped: %s", e)
+            return
+        for ls in lanes:
+            try:
+                self.evaluate_lane(ls)
+            except Exception:
+                self.log.exception("startup evaluation failed for %s", ls.get("_id"))
 
 
 if __name__ == "__main__":
