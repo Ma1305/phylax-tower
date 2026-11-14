@@ -78,7 +78,8 @@ async def run(sim: Sim, opts: dict[str, Any]) -> dict[str, Any]:
 
     truck.stop_policy = on_stop  # type: ignore[attr-defined]
 
-    landing = sim.flow(arrival(sim, af, "AC8646", start_nm=4.0, sequenced=False, stand=1,
+    landing = sim.flow(arrival(sim, af, "AC8646", start_nm=float(opts.get("final_nm", 4.0)),
+                               sequenced=False, stand=1,
                                tail=not opts.get("short", False)), name="arrival")
     await sim.until(lambda: sim.by_callsign("AC8646") is not None)
     jet = sim.by_callsign("AC8646")

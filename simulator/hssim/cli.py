@@ -100,7 +100,7 @@ async def _world(client: TowerClient) -> World:
 def _opts(args: argparse.Namespace) -> dict[str, Any]:
     opts = {"lead_s": args.lead_s, "intruder": args.intruder, "cycles": args.cycles,
             "loop": args.loop, "short": args.short, "resume_wait_s": args.resume_wait_s,
-            "crew_reaction_s": args.crew_reaction_s}
+            "crew_reaction_s": args.crew_reaction_s, "final_nm": args.final_nm}
     if getattr(args, "real_audio", None):
         opts["real_audio"] = Path(args.real_audio).expanduser()
         opts["real_audio_offset"] = real_audio_offset(args)
@@ -281,6 +281,9 @@ def _common(p: argparse.ArgumentParser) -> None:
                    help="do not clear the tower's live state first")
     p.add_argument("--lead-s", type=float, default=25.0,
                    help="crossing: seconds from the crossing clearance to the conflict")
+    p.add_argument("--final-nm", type=float, default=4.0,
+                   help="crossing: how far out the landing aircraft starts (2 makes a "
+                        "run of about a minute and a half)")
     p.add_argument("--intruder", default="person", choices=["person", "vehicle"])
     p.add_argument("--cycles", type=int, default=1, help="normal: how many traffic cycles")
     p.add_argument("--loop", action="store_true", help="normal: run until interrupted")
