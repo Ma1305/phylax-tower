@@ -5,7 +5,7 @@ import { Requests } from './components/Requests';
 import { AgentPills } from './components/AgentPills';
 import { NeedsYou } from './components/NeedsYou';
 import { Radio, type NowPlaying } from './components/Radio';
-import { Timeline } from './components/Timeline';
+import { isMajor, Timeline } from './components/Timeline';
 import { lerp, lerpAngle } from './geo';
 import { createSource, VIZ_API } from './source';
 import type { Clip, Decision, LiveMsg, Mark, ObjectDoc, Snapshot, Tracks, Transmission, World } from './types';
@@ -243,15 +243,32 @@ export default function App() {
   }, [mode, playing, playhead, goLive]);
 
   const scrub = useCallback(
-    (t: number) => {
+    (t: number, play = false) => {
       const lo = from ?? Date.now() - 60_000;
       if (modeRef.current === 'live') silence();
       setMode('history');
-      setPlaying(false);
+      setPlaying(play);
       setPlayhead(Math.max(lo, Math.min(Date.now() - 500, t)));
     },
     [from, silence],
   );
+
+  // ---- timeline window: the bar shows the last N minutes, not the whole database ----
+  const [win, setWin] = useState(15);
+  const winAuto = useRef(false);
+  useEffect(() => {
+    if (winAuto.current || marks.length === 0) return;
+    winAuto.current = true;
+    const runs = marks.filter((m) => m.type === 'run');
+    const anchor = Date.parse((runs.length ? runs[runs.length - 1] : marks[marks.length - 1]).t) - 15_000;
+    setWin([5, 15, 60].find((m) => Date.now() - m * 60_000 <= anchor) ?? 0);
+  }, [marks]);
+  const keyRef = useRef<(e: KeyboardEvent) => void>();
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => keyRef.current?.(e);
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
 
   // ---- history: snapshot at the playhead (one request in flight, the latest wins) ----
   const quantum = Math.max(1000, speed * 500);
@@ -370,6 +387,30 @@ export default function App() {
   }
 
   const actor = controller === 'all' ? actAs : controller;
+  const tlFrom = Math.max(from ?? now - 60_000, win ? now - win * 60_000 : 0);
+  const cur = live ? Date.now() : playhead;
+  const togglePlay = () => (live ? scrub(Date.now() - 1000, false) : setPlaying(!playing));
+  const seek = (delta: number) => (cur + delta >= Date.now() - 600 ? goLive() : scrub(cur + delta, playing && !live));
+  const stepEvent = (dir: -1 | 1) => {
+    const ts = marks.filter(isMajor).map((m) => Date.parse(m.t) - 2000).sort((a, b) => a - b);
+    const target = dir < 0 ? [...ts].reverse().find((t) => t < cur - 1500) : ts.find((t) => t > cur + 500);
+    if (target == null) return dir > 0 ? goLive() : undefined;
+    if (target < tlFrom) setWin(0);
+    scrub(target, playing && !live);
+  };
+  keyRef.current = (e) => {
+    const el = e.target as HTMLElement | null;
+    if (e.metaKey || e.ctrlKey || e.altKey || (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable || el.closest('.menu.open')))) return;
+    if (e.key === ' ' && el && el.tagName === 'BUTTON') return; // the focused button takes the space bar
+    const views = ['all', ...world.controllers.map((c) => c._id)];
+    if (e.key === ' ') togglePlay();
+    else if (e.key === 'ArrowLeft') e.shiftKey ? stepEvent(-1) : seek(-5000);
+    else if (e.key === 'ArrowRight') e.shiftKey ? stepEvent(1) : live ? undefined : seek(5000);
+    else if (e.key === 'l' || e.key === 'L') goLive();
+    else if (/^[1-9]$/.test(e.key) && views[+e.key - 1]) setController(views[+e.key - 1]);
+    else return;
+    e.preventDefault();
+  };
   const laneName = (id: string | null) => world.lanes.find((l) => l._id === id)?.name.replace(/^Runway/, 'runway').replace(/^Taxiway/, 'taxiway') ?? id ?? '';
   const conflict = (snap?.lane_status ?? []).find((l) => l.state === 'conflict');
   const situation: { tone: 'ok' | 'warn' | 'stop'; text: string } = stopsAll[0]
@@ -405,7 +446,7 @@ export default function App() {
             const n = (snap?.pending ?? []).filter((d) => d.controller_id === c._id).length;
             const st = stopsAll.filter((d) => d.controller_id === c._id).length;
             return (
-              <button key={c._id} className={controller === c._id ? 'on' : ''} onClick={() => setController(c._id)}>
+              <button key={c._id} className={controller === c._id ? 'on' : ''} aria-pressed={controller === c._id} onClick={() => setController(c._id)} title={`View and act as ${c.name} (key ${world.controllers.indexOf(c) + 2})`}>
                 {c.name}
                 {st > 0 && <i className="dotc is-stop" title={`${st} stop in effect`} />}
                 {n > 0 && <i className="dotc is-warn" title={`${n} waiting for approval`} />}
@@ -460,6 +501,9 @@ export default function App() {
               setSolo(id);
             }}
             live={live}
+            viewT={viewT}
+            audioUrl={ds.audioUrl}
+            mock={ds.mock}
             audioRef={audioRef}
             nowPlaying={nowPlaying}
             blocked={blocked}
@@ -469,7 +513,6 @@ export default function App() {
             }}
             onEnded={onEnded}
             emptyNote={selected ? `${selected.name} owns no radio stream.` : null}
-            analyse={ds.mock}
           />
           <NeedsYou
             ds={ds}
@@ -488,26 +531,27 @@ export default function App() {
       </main>
 
       <footer className="bottom">
-        <Timeline from={from ?? now - 60_000} to={now} playhead={playhead} live={live} playing={playing} speed={speed} marks={marks} streams={world.streams} onScrub={scrub} onLive={goLive} onPlay={setPlaying} onSpeed={setSpeed} />
-        <div className="dbstrip">
-          <div className="db-title">
-            <b>
-              <span className="dot" /> Live database
-            </b>
-            <span>MongoDB Atlas · change stream</span>
+        <Timeline from={tlFrom} to={now} playhead={playhead} live={live} playing={playing} speed={speed} marks={marks} win={win} onWin={setWin} onScrub={scrub} onLive={goLive} onToggle={togglePlay} onSeek={seek} onStep={stepEvent} onSpeed={setSpeed}>
+          <div className="dbstrip">
+            <div className="db-title">
+              <b>
+                <span className="dot" /> Live database
+              </b>
+              <span>MongoDB Atlas · change stream</span>
+            </div>
+            <div className="db-event mono" key={dbEvent?.n ?? 0}>
+              {dbEvent ? (
+                <>
+                  <span className="db-coll">{dbEvent.coll}</span>
+                  <span className="db-json">{dbEvent.json}</span>
+                  <span className="db-t">{dbEvent.t}</span>
+                </>
+              ) : (
+                <span className="db-json">waiting for the first change event…</span>
+              )}
+            </div>
           </div>
-          <div className="db-event mono" key={dbEvent?.n ?? 0}>
-            {dbEvent ? (
-              <>
-                <span className="db-coll">{dbEvent.coll}</span>
-                <span className="db-json">{dbEvent.json}</span>
-                <span className="db-t">{dbEvent.t}</span>
-              </>
-            ) : (
-              <span className="db-json">waiting for the first change event…</span>
-            )}
-          </div>
-        </div>
+        </Timeline>
       </footer>
 
       {drawer && (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError, type AuditAnswer, type Controller, type DataSource, type Decision, type World } from '../types';
 import { hhmmss } from '../util';
+import { Menu } from './Menu';
 
 interface Props {
   ds: DataSource;
@@ -66,16 +67,7 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
             Awaiting approval <span className={`count ${list.length ? 'hot' : ''}`}>{list.length}</span>
           </h2>
           {controller === 'all' ? (
-            <label className="actas">
-              act as
-              <select value={actAs} onChange={(e) => onActAs(e.target.value)} disabled={readOnly}>
-                {world.controllers.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <Menu label="Act as" prefix="Act as" value={actAs} onChange={onActAs} disabled={readOnly} options={world.controllers.map((c) => ({ value: c._id, label: c.name }))} />
           ) : (
             <span className="muted small">routed to {selected?.name}</span>
           )}
