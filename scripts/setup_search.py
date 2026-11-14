@@ -7,6 +7,9 @@ upserted, missing indexes are created, and changed index definitions are updated
     uv run python scripts/setup_search.py --db NAME
     uv run python scripts/setup_search.py --no-vector   # Atlas Search text only
 
+Also the Vector Search index `context_vector` on context.summary (automated embedding,
+filters tower_id / kind / lane_ids) used by holdshort.memory.query.search(text=...).
+
 Collections: callsigns (Atlas Search, fuzzy) and incidents (Vector Search with
 automated Voyage embedding on `summary`, plus an Atlas Search text index used as
 the fallback when the vector index is missing or not queryable).
@@ -25,6 +28,7 @@ from pymongo.operations import SearchIndexModel
 
 from holdshort.db import get_client
 from holdshort.env import mongodb_db_name, redact
+from holdshort.memory import query as context_query
 from holdshort.search import callsigns, incidents
 from holdshort.search.seed import CALLSIGNS, INCIDENTS
 
@@ -133,6 +137,11 @@ def main() -> int:
             wanted.append(
                 (inc, incidents.VECTOR_INDEX, "vectorSearch", incidents.VECTOR_DEFINITION)
             )
+            # agents' working memory: semantic search over context.summary
+            if context_query.COLLECTION not in db.list_collection_names():
+                db.create_collection(context_query.COLLECTION)
+            wanted.append((db[context_query.COLLECTION], context_query.VECTOR_INDEX,
+                           "vectorSearch", context_query.VECTOR_DEFINITION))
 
         vector_ok = False
         for coll, name, kind, definition in wanted:
@@ -143,14 +152,14 @@ def main() -> int:
                     raise
                 print(
                     f"{coll.name}.{name}: not supported here ({redact(e)}); "
-                    "incidents.similar() will use the Atlas Search text index"
+                    "the text fallback will be used"
                 )
                 continue
             ok = wait_ready(coll, name, args.timeout)
             print(f"  {coll.name}.{name}: {'READY' if ok else 'NOT READY'}")
             if not ok and kind != "vectorSearch":
                 return 1
-            if kind == "vectorSearch":
+            if kind == "vectorSearch" and coll.name == incidents.COLLECTION:
                 vector_ok = ok
 
         if vector_ok:
