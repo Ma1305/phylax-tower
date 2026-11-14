@@ -29,3 +29,7 @@ scripts/verify/out/
 # MongoDB agent skills: installed per machine with `npx skills add mongodb/agent-skills`
 .claude/skills/
 skills-lock.json
+
+# Generated radio audio (regenerate with scripts/audio/); only the manifest is committed
+scenarios/*/audio/*
+!scenarios/*/audio/manifest.json
