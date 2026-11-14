@@ -151,8 +151,11 @@ def headline(result: dict[str, Any]) -> str:
 
 
 def create_panel_app(args: argparse.Namespace, token: str | None = None) -> Any:
+    from urllib.parse import urlsplit
+
     from fastapi import FastAPI, Header, HTTPException
     from fastapi.responses import HTMLResponse
+    from starlette.middleware.trustedhost import TrustedHostMiddleware
 
     from hssim.cli import run_scenario
 
@@ -162,8 +165,15 @@ def create_panel_app(args: argparse.Namespace, token: str | None = None) -> Any:
     state: dict[str, Any] = {"task": None, "scenario": None, "started": 0.0, "last": None}
     app = FastAPI(title="Hold Short simulator")
     app.state.sim_state, app.state.token = state, token
+    # Only answer requests addressed to this machine by name. Without this, a web site
+    # whose hostname is re-pointed at 127.0.0.1 (DNS rebinding) could load this page and
+    # read the token out of it.
+    local = {"localhost", "127.0.0.1", "[::1]", str(getattr(args, "control_host", "127.0.0.1"))}
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(local))
 
-    def check(given: str | None) -> None:
+    def check(given: str | None, origin: str | None = None) -> None:
+        if origin and (urlsplit(origin).hostname or "") not in {h.strip("[]") for h in local}:
+            raise HTTPException(403, "requests from other sites are not accepted")
         if not given or not hmac.compare_digest(given, token):
             raise HTTPException(403, "missing or wrong X-Sim-Token (use the buttons on this "
                                      "page)")
@@ -203,8 +213,9 @@ def create_panel_app(args: argparse.Namespace, token: str | None = None) -> Any:
                                "expect": s.expect} for s in SCENARIOS.values()]}
 
     @app.post("/run/{name}")
-    async def run(name: str, x_sim_token: str | None = Header(default=None)) -> dict[str, Any]:
-        check(x_sim_token)
+    async def run(name: str, x_sim_token: str | None = Header(default=None),
+                  origin: str | None = Header(default=None)) -> dict[str, Any]:
+        check(x_sim_token, origin)
         if name not in SCENARIOS:
             raise HTTPException(404, f"unknown scenario {name!r}")
         if state["task"] is not None:
@@ -215,8 +226,9 @@ def create_panel_app(args: argparse.Namespace, token: str | None = None) -> Any:
         return {"started": name}
 
     @app.post("/stop")
-    async def stop(x_sim_token: str | None = Header(default=None)) -> dict[str, Any]:
-        check(x_sim_token)
+    async def stop(x_sim_token: str | None = Header(default=None),
+                   origin: str | None = Header(default=None)) -> dict[str, Any]:
+        check(x_sim_token, origin)
         task = state["task"]
         if task is None:
             return {"stopped": False}
