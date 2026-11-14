@@ -1,31 +1,38 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { bearing, distM, makeProjection, NM, type XY } from '../geo';
+import { bearing, makeProjection, NM, type XY } from '../geo';
 import type { Lane, LaneState, LaneStatus, ObjectDoc, World } from '../types';
 
-export const STATE_META: Record<LaneState, { label: string; glyph: string; hint: string }> = {
-  clear: { label: 'CLEAR', glyph: '', hint: 'no traffic, no clearance' },
-  reserved: { label: 'RESERVED', glyph: '◷', hint: 'an active clearance' },
-  occupied: { label: 'OCCUPIED', glyph: '●', hint: 'something is on it' },
-  conflict: { label: 'CONFLICT', glyph: '▲', hint: 'clearance + other traffic' },
-  closed: { label: 'CLOSED', glyph: '✕', hint: 'not in use' },
+export const STATE_META: Record<LaneState, { label: string; hint: string }> = {
+  clear: { label: 'CLEAR', hint: 'no traffic, no clearance' },
+  reserved: { label: 'RESERVED', hint: 'an active clearance' },
+  occupied: { label: 'OCCUPIED', hint: 'something is on it' },
+  conflict: { label: 'CONFLICT', hint: 'a clearance and other traffic' },
+  closed: { label: 'CLOSED', hint: 'not in use' },
 };
-const STATES = Object.keys(STATE_META) as LaneState[];
 
 interface Props {
   world: World;
   objects: ObjectDoc[];
   laneStatus: LaneStatus[];
   ownedLanes: Set<string> | null; // null = no controller filter
-  flagged: Set<string>; // callsigns targeted by a pending request
+  flagged: Set<string>; // callsigns targeted by a pending request or a stop
   smooth: boolean;
 }
 
 type Zoom = 'airfield' | 'approach';
 
+// Flushing Bay and Bowery Bay, drawn by hand around the field (lon, lat).
+const WATER: number[][][] = [
+  [[-73.8660, 40.8050], [-73.8672, 40.7905], [-73.8640, 40.7868], [-73.8600, 40.7822], [-73.8548, 40.7780], [-73.8520, 40.7735], [-73.8490, 40.7660], [-73.8440, 40.7600], [-73.8200, 40.7600], [-73.8200, 40.8050]],
+  [[-73.9100, 40.8050], [-73.9100, 40.7790], [-73.8960, 40.7800], [-73.8880, 40.7822], [-73.8820, 40.7850], [-73.8760, 40.7868], [-73.8700, 40.7900], [-73.8672, 40.7905], [-73.8660, 40.8050]],
+];
+const PLANE = 'M0,-15 C1.7,-15 2.4,-12 2.4,-9 L2.4,-3.5 L14,4 L14,6.8 L2.4,3.6 L2.1,9.5 L6,12.6 L6,14.4 L0,12.8 L-6,14.4 L-6,12.6 L-2.1,9.5 L-2.4,3.6 L-14,6.8 L-14,4 L-2.4,-3.5 L-2.4,-9 C-2.4,-12 -1.7,-15 0,-15 Z';
+
 export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smooth }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
   const [zoom, setZoom] = useState<Zoom>('airfield');
+  const [help, setHelp] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
@@ -43,16 +50,15 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
       l.centerline?.coordinates.forEach((c) => pts.push(proj.toM(c)));
       l.area?.coordinates[0]?.forEach((c) => pts.push(proj.toM(c)));
     }
-    world.hold_points.forEach((h) => pts.push(proj.toM(h.position.coordinates)));
     const box = (p: XY[], pad: number) => {
       const xs = p.map((q) => q[0]);
       const ys = p.map((q) => q[1]);
       return { x0: Math.min(...xs) - pad, x1: Math.max(...xs) + pad, y0: Math.min(...ys) - pad, y1: Math.max(...ys) + pad };
     };
-    // Final to runway 04: the extended centerline behind the first designator's threshold.
     const rwy = world.lanes.find((l) => l.designators.includes('04') && l.centerline) ?? world.lanes.find((l) => l.kind === 'runway' && l.centerline);
     let final: { thr: XY; ux: number; uy: number; name: string } | null = null;
     const approachPts = [...pts];
+    const fieldPts = [...pts];
     if (rwy?.centerline) {
       const c = rwy.centerline.coordinates;
       const first = rwy.designators[0] === '04' || !rwy.designators.includes('04');
@@ -63,77 +69,117 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
       const uy = (thr[1] - far[1]) / len;
       final = { thr, ux, uy, name: first ? rwy.designators[0] : '04' };
       approachPts.push([thr[0] + ux * 7.5 * NM, thr[1] + uy * 7.5 * NM]);
+      fieldPts.push([thr[0] + ux * 900, thr[1] + uy * 900]); // room for short final
     }
-    return { proj, airfield: box(pts, 260), approach: box(approachPts, 2600), final };
+    // terminal blocks along the landside edge of the apron
+    const terminals: { c: XY; ang: number; len: number }[] = [];
+    const apron = world.lanes.find((l) => l.kind === 'apron' && l.area)?.area?.coordinates[0]?.map((c) => proj.toM(c));
+    const rc = rwy?.centerline ? proj.toM(rwy.centerline.coordinates[0]) : null;
+    if (apron && apron.length >= 4 && rc) {
+      const cen: XY = [(apron[0][0] + apron[2][0]) / 2, (apron[0][1] + apron[2][1]) / 2];
+      let best = 0;
+      let bd = -1;
+      for (let i = 0; i < 4; i++) {
+        const a = apron[i];
+        const b = apron[i + 1] ?? apron[0];
+        const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        const m: XY = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        const d = Math.hypot(m[0] - rc[0], m[1] - rc[1]) + L; // long edge, away from the runway
+        if (L > 500 && d > bd) {
+          bd = d;
+          best = i;
+        }
+      }
+      const a = apron[best];
+      const b = apron[best + 1] ?? apron[0];
+      const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      const m: XY = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+      let n: XY = [-(b[1] - a[1]) / L, (b[0] - a[0]) / L];
+      if ((m[0] - cen[0]) * n[0] + (m[1] - cen[1]) * n[1] < 0) n = [-n[0], -n[1]];
+      for (const f of [0.2, 0.5, 0.8]) {
+        terminals.push({ c: [a[0] + (b[0] - a[0]) * f + n[0] * 95, a[1] + (b[1] - a[1]) * f + n[1] * 95], ang: (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI, len: L * 0.24 });
+      }
+    }
+    return { proj, airfield: box(fieldPts, 220), approach: box(approachPts, 2600), final, terminals };
   }, [world]);
 
   const view = zoom === 'airfield' ? geom.airfield : geom.approach;
   const scale = Math.min(size.w / (view.x1 - view.x0), size.h / (view.y1 - view.y0));
   const cx = (view.x0 + view.x1) / 2;
   const cy = (view.y0 + view.y1) / 2;
-  const px = (lonLat: number[]): XY => {
-    const m = geom.proj.toM(lonLat);
-    return [(m[0] - cx) * scale + size.w / 2, (m[1] - cy) * scale + size.h / 2];
-  };
   const mpx = (m: XY): XY => [(m[0] - cx) * scale + size.w / 2, (m[1] - cy) * scale + size.h / 2];
+  const px = (lonLat: number[]): XY => mpx(geom.proj.toM(lonLat));
   const far = zoom === 'approach';
 
   const statusOf = (id: string) => laneStatus.find((s) => s._id === id);
   const dim = (id: string) => ownedLanes !== null && !ownedLanes.has(id);
   const order = { apron: 0, taxiway: 1, runway: 2 };
   const lanes = [...world.lanes].sort((a, b) => order[a.kind] - order[b.kind]);
-
-  const thr04 = geom.final ? geom.proj.toLonLat(geom.final.thr) : null;
-  const airborne = objects
-    .filter((o) => o.status === 'airborne')
-    .map((o) => ({ o, d: thr04 ? distM(o.position.coordinates, thr04) / NM : 0 }))
-    .sort((a, b) => a.d - b.d);
+  const laneOf = (id: string | null) => world.lanes.find((l) => l._id === id);
+  const thrPx = geom.final ? mpx(geom.final.thr) : null;
 
   return (
-    <div className="map-col">
     <div className="map" ref={ref}>
       <svg width={size.w} height={size.h} role="img" aria-label="Airfield map">
-        <defs>
-          <pattern id="hatch-conflict" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <rect width="4" height="8" fill="rgba(10,12,16,0.55)" />
-          </pattern>
-          <pattern id="hatch-closed" width="9" height="9" patternUnits="userSpaceOnUse">
-            <path d="M1,1 L8,8 M8,1 L1,8" stroke="#9aa3ad" strokeWidth="1.2" />
-          </pattern>
-        </defs>
+        {WATER.map((ring, i) => (
+          <path key={i} className="water" d={ring.map((c, j) => `${j ? 'L' : 'M'}${px(c).join(',')}`).join(' ') + ' Z'} />
+        ))}
+        {!far &&
+          (() => {
+            const p = px([-73.8585, 40.7855]);
+            return (
+              <text x={p[0]} y={p[1]} className="water-label">
+                Flushing Bay
+              </text>
+            );
+          })()}
 
-        {/* range marks on the final */}
-        {geom.final && far && (
+        {geom.final && thrPx && (
           <g className="final">
             {(() => {
               const f = geom.final;
-              const a = mpx(f.thr);
               const b = mpx([f.thr[0] + f.ux * 8 * NM, f.thr[1] + f.uy * 8 * NM]);
               const ang = Math.atan2(f.uy, f.ux);
               return (
                 <>
-                  <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="final-line" />
-                  {[2, 4, 6].map((nm) => {
-                    const r = nm * NM * scale;
-                    const s = [a[0] + r * Math.cos(ang - 0.42), a[1] + r * Math.sin(ang - 0.42)];
-                    const e = [a[0] + r * Math.cos(ang + 0.42), a[1] + r * Math.sin(ang + 0.42)];
-                    return (
-                      <g key={nm}>
-                        <path d={`M${s[0]},${s[1]} A${r},${r} 0 0 1 ${e[0]},${e[1]}`} className="final-arc" />
-                        <text x={e[0] - 6} y={e[1] + 14} className="final-label">
-                          {nm} nm
-                        </text>
-                      </g>
-                    );
-                  })}
-                  <text x={b[0] + 8} y={b[1] - 4} className="final-label">
-                    FINAL RWY {f.name}
-                  </text>
+                  <line x1={thrPx[0]} y1={thrPx[1]} x2={b[0]} y2={b[1]} className="final-line" />
+                  {far &&
+                    [2, 4, 6].map((nm) => {
+                      const r = nm * NM * scale;
+                      const s = [thrPx[0] + r * Math.cos(ang - 0.3), thrPx[1] + r * Math.sin(ang - 0.3)];
+                      const e = [thrPx[0] + r * Math.cos(ang + 0.3), thrPx[1] + r * Math.sin(ang + 0.3)];
+                      return (
+                        <g key={nm}>
+                          <path d={`M${s[0]},${s[1]} A${r},${r} 0 0 1 ${e[0]},${e[1]}`} className="final-arc" />
+                          <text x={e[0] - 8} y={e[1] + 18} className="final-label">
+                            {nm} nm
+                          </text>
+                        </g>
+                      );
+                    })}
                 </>
               );
             })()}
           </g>
         )}
+
+        {!far &&
+          geom.terminals.map((t, i) => {
+            const c = mpx(t.c);
+            const w = t.len * scale;
+            const h = 120 * scale;
+            return <rect key={i} className="terminal" x={-w / 2} y={-h / 2} width={w} height={h} rx={6} transform={`translate(${c[0]},${c[1]}) rotate(${t.ang})`} />;
+          })}
+        {!far &&
+          geom.terminals[1] &&
+          (() => {
+            const c = mpx(geom.terminals[1].c);
+            return (
+              <text x={c[0] + 70 * scale + 14} y={c[1] + 150 * scale} className="quiet-label small">
+                Terminals
+              </text>
+            );
+          })()}
 
         {lanes.map((l) => (
           <LaneShape key={l._id} lane={l} state={statusOf(l._id)?.state ?? 'clear'} px={px} scale={scale} far={far} dim={dim(l._id)} owned={ownedLanes?.has(l._id) ?? false} />
@@ -141,14 +187,16 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
 
         {!far &&
           world.hold_points.map((h) => {
-            const lane = world.lanes.find((l) => l._id === h.lane_id);
+            const lane = laneOf(h.lane_id);
             const c = lane?.centerline?.coordinates;
             const ang = c ? bearing(c[0], c[1]) : 0;
             const p = px(h.position.coordinates);
+            const w = Math.max((lane?.width_m ?? 23) * scale, 9) / 2 + 1;
             return (
-              <g key={h._id} transform={`translate(${p[0]},${p[1]}) rotate(${ang})`} opacity={dim(h.lane_id) ? 0.3 : 1}>
+              <g key={h._id} transform={`translate(${p[0]},${p[1]}) rotate(${ang})`} opacity={dim(h.lane_id) ? 0.3 : 1} className="holdpoint">
                 <title>{`Hold point ${h._id} (protects ${h.protects})`}</title>
-                <rect x={-9} y={-2} width={18} height={4} className="holdpoint" />
+                <line x1={-w} x2={w} y1={-1.6} y2={-1.6} />
+                <line x1={-w} x2={w} y1={1.6} y2={1.6} strokeDasharray="3 2" />
               </g>
             );
           })}
@@ -161,24 +209,36 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
           const p = px(o.position.coordinates);
           const name = o.callsign ?? o.label ?? o._id;
           const air = o.status === 'airborne';
-          const showLabel = !far || air;
           const hot = flagged.has(o.callsign ?? o._id);
+          const showLabel = (!far || air) && (o.kind !== 'person' || !!o.callsign) && (o.kind === 'aircraft' || !!o.callsign || !!o.label || hot);
+          const sub =
+            o.kind === 'aircraft'
+              ? air
+                ? `${(o.alt_ft ?? 9999) < 1500 ? 'short final' : 'on approach'} · ${o.alt_ft != null ? Math.round(o.alt_ft / 10) * 10 : '---'} ft · ${o.speed_kt != null ? Math.round(o.speed_kt) : '---'} kt`
+                : o.hold_short
+                  ? 'holding short'
+                  : (o.speed_kt ?? 0) > 1
+                    ? `taxiing${laneOf(o.lane_id)?.designators[0] ? ' · ' + laneOf(o.lane_id)!.designators[0] : ''}`
+                    : laneOf(o.lane_id)?.kind === 'runway'
+                      ? 'on the runway'
+                      : 'on the ground'
+              : o.hold_short
+                ? 'holding short'
+                : laneOf(o.lane_id)?.kind === 'runway'
+                  ? `on runway ${laneOf(o.lane_id)!.designators.join('/')}`
+                  : '';
+          const dx = o.kind === 'aircraft' ? 24 : 16;
           return (
-            <g key={o._id} className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth ? 'smooth' : ''}`} style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}>
+            <g key={o._id} className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth ? 'smooth' : ''} ${hot ? 'hot' : ''}`} style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}>
               <title>{`${name} · ${o.kind} · ${o.status}${o.lane_id ? ' · on ' + o.lane_id : ''}`}</title>
-              {hot && <circle r={17} className="obj-ring" />}
-              <ObjGlyph o={o} small={far && !air} />
+              {hot && <circle r={o.kind === 'aircraft' ? 26 : 16} className="obj-ring" />}
+              <ObjGlyph o={o} small={far} />
               {showLabel && (
-                <text x={13} y={-7} className="obj-label">
-                  <tspan className={o.callsign ? 'obj-name' : 'obj-name soft'}>{name}</tspan>
-                  {air && (
-                    <tspan x={13} dy={13} className="obj-data">
-                      {o.alt_ft != null ? `${Math.round(o.alt_ft / 10) * 10} ft` : '--- ft'} · {o.speed_kt != null ? `${Math.round(o.speed_kt)} kt` : '--- kt'}
-                    </tspan>
-                  )}
-                  {!air && o.callsign && o.hold_short && (
-                    <tspan x={13} dy={12} className="obj-data">
-                      holding short
+                <text x={dx} y={sub ? -4 : 5} className="obj-label">
+                  <tspan className="obj-name">{o.kind === 'vehicle' && sub ? `${name} · ${sub}` : name}</tspan>
+                  {sub && o.kind !== 'vehicle' && (
+                    <tspan x={dx} dy={17} className="obj-data">
+                      {sub}
                     </tspan>
                   )}
                 </text>
@@ -189,98 +249,42 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
       </svg>
 
       <div className="map-tools">
-        <div className="seg" role="group" aria-label="Map zoom">
+        <div className="seg small" role="group" aria-label="Map zoom">
           <button className={zoom === 'airfield' ? 'on' : ''} onClick={() => setZoom('airfield')}>
             Airfield
           </button>
           <button className={zoom === 'approach' ? 'on' : ''} onClick={() => setZoom('approach')}>
-            Approach · 7 nm
+            Approach
           </button>
         </div>
-      </div>
-
-      <div className="map-air">
-        <div className="cap">Airborne · distance to RWY 04</div>
-        {airborne.length === 0 && <div className="muted">No airborne traffic</div>}
-        {airborne.map(({ o, d }) => (
-          <button key={o._id} className="air-row" onClick={() => setZoom('approach')} title="Show on the approach view">
-            <span className="mono strong">{o.callsign ?? o._id}</span>
-            <span className="mono">{d.toFixed(1)} nm</span>
-            <span className="mono">{o.alt_ft != null ? Math.round(o.alt_ft / 10) * 10 : '---'} ft</span>
-            <span className="mono">{o.speed_kt != null ? Math.round(o.speed_kt) : '---'} kt</span>
-          </button>
-        ))}
-      </div>
-
-    </div>
-      <div className="map-legend">
-        <div className="legend-row">
-          {STATES.map((s) => (
-            <span key={s} className="legend-item" title={STATE_META[s].hint}>
-              <svg width="26" height="12">
-                <rect x="1" y="1" width="24" height="10" rx="2" className={`lane-fill st-${s}`} />
-                {s === 'conflict' && <rect x="1" y="1" width="24" height="10" rx="2" fill="url(#hatch-conflict)" />}
-                {s === 'closed' && <rect x="1" y="1" width="24" height="10" rx="2" fill="url(#hatch-closed)" />}
-                {s === 'reserved' && <line x1="3" y1="6" x2="23" y2="6" className="lane-dash" />}
-              </svg>
-              {STATE_META[s].glyph} {STATE_META[s].label}
-            </span>
-          ))}
-        </div>
-        <div className="legend-row">
-          <span className="legend-item">
-            <svg width="16" height="16" viewBox="-10 -10 20 20"><path d="M0,-9 L6,7 L0,3 L-6,7 Z" className="glyph" /></svg>
-            aircraft
-          </span>
-          <span className="legend-item">
-            <svg width="16" height="16" viewBox="-10 -10 20 20"><rect x="-6" y="-6" width="12" height="12" className="glyph" /></svg>
-            vehicle
-          </span>
-          <span className="legend-item">
-            <svg width="16" height="16" viewBox="-10 -10 20 20"><circle r="5" className="glyph" /></svg>
-            person
-          </span>
-          <span className="legend-item">
-            <svg width="16" height="16" viewBox="-10 -10 20 20"><path d="M0,-8 L8,0 L0,8 L-8,0 Z" className="glyph hollow" /></svg>
-            unknown
-          </span>
-          <span className="legend-item">
-            <svg width="18" height="12"><rect x="0" y="4" width="18" height="4" className="holdpoint" /></svg>
-            hold point
-          </span>
-        </div>
+        <button className="help-btn" aria-label="Map key" onClick={() => setHelp(!help)}>
+          ?
+        </button>
+        {help && (
+          <div className="popover help" onClick={() => setHelp(false)}>
+            <div className="pop-title">Map key</div>
+            <p><i className="key k-reserved" /> Reserved: an active clearance</p>
+            <p><i className="key k-occupied" /> Occupied: something is on it</p>
+            <p><i className="key k-conflict" /> Conflict: a clearance and other traffic</p>
+            <p><i className="key k-hold" /> Hold-short line</p>
+            <p><i className="key k-veh" /> Vehicle · <i className="key k-person" /> person</p>
+            <p className="pop-note">A red ring marks the target of a stop or a waiting proposal.</p>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 function ObjGlyph({ o, small }: { o: ObjectDoc; small: boolean }) {
-  const k = small ? 0.6 : 1;
-  const hdg = o.heading_deg;
-  if (o.kind === 'aircraft') {
-    return <path d="M0,-11 L7.5,8 L0,3.5 L-7.5,8 Z" className="glyph" transform={`rotate(${hdg ?? 0}) scale(${k})`} />;
-  }
-  const tick = hdg != null && (o.speed_kt ?? 0) > 0 && (
-    <line x1={0} y1={0} x2={0} y2={-16} className="hdg-tick" transform={`rotate(${hdg})`} />
-  );
-  if (o.kind === 'vehicle')
-    return (
-      <g transform={`scale(${k})`}>
-        {tick}
-        <rect x={-6} y={-6} width={12} height={12} className="glyph" />
-      </g>
-    );
-  if (o.kind === 'person')
-    return (
-      <g transform={`scale(${k})`}>
-        {tick}
-        <circle r={5} className="glyph" />
-      </g>
-    );
+  const hdg = o.heading_deg ?? 0;
+  if (o.kind === 'aircraft') return <path d={PLANE} className="glyph plane" transform={`rotate(${hdg}) scale(${small ? 0.8 : o.status === 'airborne' ? 1.5 : 1.15})`} />;
+  if (small) return <circle r={2.5} className={`glyph ${o.kind}`} />;
+  if (o.kind === 'vehicle') return <rect x={-5} y={-9} width={10} height={18} rx={3} className="glyph vehicle" transform={`rotate(${hdg})`} />;
+  if (o.kind === 'person') return <circle r={3.5} className="glyph person" />;
   return (
-    <g transform={`scale(${k})`}>
-      {tick}
-      <path d="M0,-9 L9,0 L0,9 L-9,0 Z" className="glyph hollow" />
+    <g>
+      <circle r={8} className="glyph unknown" />
       <text y={4} textAnchor="middle" className="glyph-q">
         ?
       </text>
@@ -299,22 +303,34 @@ interface LaneShapeProps {
 }
 
 function LaneShape({ lane, state, px, scale, far, dim, owned }: LaneShapeProps) {
-  const cls = `lane st-${state} ${dim ? 'dim' : ''}`;
+  const cls = `lane lane-${lane.kind} st-${state} ${dim ? 'dim' : ''} ${owned ? 'owned' : ''}`;
   if (lane.centerline) {
-    const [a, b] = [px(lane.centerline.coordinates[0]), px(lane.centerline.coordinates[lane.centerline.coordinates.length - 1])];
-    const min = lane.kind === 'runway' ? (far ? 5 : 12) : far ? 2.5 : 7;
-    const w = Math.max((lane.width_m ?? 20) * scale, min);
+    const c = lane.centerline.coordinates;
+    const a = px(c[0]);
+    const b = px(c[c.length - 1]);
+    const rw = lane.kind === 'runway';
+    const w = Math.max((lane.width_m ?? 20) * scale * (rw ? 1.25 : 1), rw ? (far ? 4 : 14) : far ? 2 : 8);
     const line = { x1: a[0], y1: a[1], x2: b[0], y2: b[1] };
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const ang = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
+    const bars = [-0.36, -0.22, -0.08, 0.08, 0.22, 0.36];
     return (
       <g className={cls}>
         <title>{`${lane.name}: ${state}`}</title>
-        {owned && <line {...line} strokeWidth={w + 8} className="lane-owned" />}
-        <line {...line} strokeWidth={w + 2.5} className="lane-edge" />
+        {state !== 'clear' && <line {...line} strokeWidth={w + 14} className="lane-glow" />}
+        {state !== 'clear' && <line {...line} strokeWidth={w + 3} className="lane-outline" />}
         <line {...line} strokeWidth={w} className="lane-body" />
-        {state === 'conflict' && <line {...line} strokeWidth={w} stroke="url(#hatch-conflict)" />}
-        {state === 'closed' && <line {...line} strokeWidth={w} stroke="url(#hatch-closed)" />}
-        {state === 'reserved' && <line {...line} className="lane-dash" />}
-        {lane.kind === 'runway' && state === 'clear' && !far && <line {...line} className="rwy-center" />}
+        {rw && !far && <line {...line} className="rwy-center" strokeDasharray={`${len / 42} ${len / 42}`} strokeDashoffset={-len / 28} />}
+        {!rw && !far && <line {...line} className="twy-center" />}
+        {rw &&
+          !far &&
+          [a, b].map((e, i) => (
+            <g key={i} transform={`translate(${e[0]},${e[1]}) rotate(${ang + (i ? 180 : 0)})`} className="thr">
+              {bars.map((f) => (
+                <line key={f} x1={7} x2={7 + w * 1.1} y1={f * w} y2={f * w} />
+              ))}
+            </g>
+          ))}
       </g>
     );
   }
@@ -324,10 +340,7 @@ function LaneShape({ lane, state, px, scale, far, dim, owned }: LaneShapeProps) 
   return (
     <g className={cls}>
       <title>{`${lane.name}: ${state}`}</title>
-      {owned && <path d={d} className="lane-owned" strokeWidth={6} fill="none" />}
       <path d={d} className="lane-poly" />
-      {state === 'conflict' && <path d={d} fill="url(#hatch-conflict)" />}
-      {state === 'closed' && <path d={d} fill="url(#hatch-closed)" />}
     </g>
   );
 }
@@ -335,67 +348,60 @@ function LaneShape({ lane, state, px, scale, far, dim, owned }: LaneShapeProps) 
 function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?: LaneStatus; px: (c: number[]) => XY; far: boolean; dim: boolean; scale: number }) {
   if (far && lane.kind !== 'runway') return null;
   const state = status?.state ?? 'clear';
-  const meta = STATE_META[state];
-  const short = lane.kind === 'runway' ? `RWY ${lane.designators.join('/')}` : lane.kind === 'taxiway' ? `TWY ${lane.designators[0]}` : lane.name.toUpperCase();
-  const text = state === 'clear' ? short : `${short}  ${meta.glyph} ${meta.label}`;
-  let p: XY;
-  let ends: { p: XY; t: string }[] = [];
+  const labels: { p: XY; t: string; anchor?: 'start' | 'middle' | 'end' }[] = [];
+  let chip: XY;
   if (lane.centerline) {
     const c = lane.centerline.coordinates;
     const a = px(c[0]);
     const b = px(c[c.length - 1]);
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    const ux = (b[0] - a[0]) / len;
+    const uy = (b[1] - a[1]) / len;
     const w = Math.max((lane.width_m ?? 20) * scale, 12);
-    const ux0 = (b[0] - a[0]) / len;
-    const uy0 = (b[1] - a[1]) / len;
+    // the side normal that points down-right, so labels sit beside the pavement
+    let nx = -uy;
+    let ny = ux;
+    if (nx < 0) [nx, ny] = [-nx, -ny];
     if (lane.kind === 'runway') {
-      // beside the runway, on its upper-left side, so the chip never sits on it
-      let nx = uy0;
-      let ny = -ux0;
-      if (ny > 0 || (ny === 0 && nx > 0)) [nx, ny] = [-nx, -ny];
-      const off = w / 2 + 16;
-      p = [a[0] + (b[0] - a[0]) * 0.86 + nx * off, a[1] + (b[1] - a[1]) * 0.86 + ny * off];
+      const off = w / 2 + 20;
+      if (!far) {
+        labels.push({ p: [a[0] + ux * 30 + nx * off, a[1] + uy * 30 + ny * off + 6], t: `RWY ${lane.designators[0]}` });
+        labels.push({ p: [b[0] - ux * 10 + nx * off, b[1] - uy * 10 + ny * off + 6], t: `RWY ${lane.designators[1] ?? ''}` });
+      }
+      chip = [a[0] + (b[0] - a[0]) * 0.34 - nx * (off + 34), a[1] + (b[1] - a[1]) * 0.34 - ny * (off + 8)];
     } else {
-      // taxiways: just past the upper end, clear of traffic on the lane
-      const up = a[1] < b[1] ? a : b;
-      const s = a[1] < b[1] ? -1 : 1;
-      p = [up[0] + s * ux0 * 30, up[1] + s * uy0 * 18];
-    }
-    if (lane.kind === 'runway' && !far) {
-      const ux = (b[0] - a[0]) / len;
-      const uy = (b[1] - a[1]) / len;
-      ends = [
-        { p: [a[0] - ux * 20, a[1] - uy * 20], t: lane.designators[0] },
-        { p: [b[0] + ux * 20, b[1] + uy * 20], t: lane.designators[1] ?? '' },
-      ];
+      const lo = a[1] > b[1] ? a : b;
+      const s = a[1] > b[1] ? -1 : 1;
+      const long = len > 400;
+      const lp: XY = long ? [a[0] + (b[0] - a[0]) * 0.5 + nx * 16, a[1] + (b[1] - a[1]) * 0.5 + ny * 16 + 5] : [lo[0] + s * ux * 16 + 8, lo[1] + s * uy * 16 + 12];
+      labels.push({ p: lp, t: `TWY ${lane.designators[0]}` });
+      chip = [lp[0] + 30, lp[1] + 24];
     }
   } else {
     const ring = lane.area?.coordinates[0] ?? [];
     if (!ring.length) return null;
     const q = ring.slice(0, -1).map(px);
-    const c: XY = [q.reduce((s, v) => s + v[0], 0) / q.length, q.reduce((s, v) => s + v[1], 0) / q.length];
-    const low = q.reduce((m, v) => (v[1] > m[1] ? v : m), q[0]);
-    p = [c[0] + (low[0] - c[0]) * 0.55, c[1] + (low[1] - c[1]) * 0.55];
+    const cen: XY = [q.reduce((s, v) => s + v[0], 0) / q.length, q.reduce((s, v) => s + v[1], 0) / q.length];
+    labels.push({ p: [cen[0], cen[1] + 5], t: 'Apron', anchor: 'middle' });
+    chip = [cen[0], cen[1] + 30];
   }
-  const w = text.length * 6.4 + 14;
+  const text = STATE_META[state].label;
+  const cw = text.length * 7.6 + 20;
   return (
     <g className={`lane-label st-${state} ${dim ? 'dim' : ''}`}>
-      {ends.map((e) => (
-        <text key={e.t} x={e.p[0]} y={e.p[1] + 5} textAnchor="middle" className="rwy-end">
-          {e.t}
+      {labels.map((l) => (
+        <text key={l.t} x={l.p[0]} y={l.p[1]} textAnchor={l.anchor ?? 'start'} className={`quiet-label ${lane.kind === 'runway' ? '' : 'small'}`}>
+          {l.t}
         </text>
       ))}
-      <g transform={`translate(${p[0] - w / 2},${p[1] - 9})`}>
-        <title>{status?.reason ?? `${lane.name}: ${state}`}</title>
-        <rect width={w} height={18} rx={3} className="chip-bg" />
-        <text x={7} y={13} className="chip-text">
-          {text}
-        </text>
-      </g>
-      {status?.reason && !far && (state === 'conflict' || state === 'closed') && (
-        <text x={p[0] - w / 2 + 2} y={p[1] + 22} className="chip-reason">
-          {status.reason}
-        </text>
+      {state !== 'clear' && (
+        <g transform={`translate(${chip[0] - cw / 2},${chip[1] - 11})`} className="chip">
+          <title>{status?.reason ?? `${lane.name}: ${state}`}</title>
+          <rect width={cw} height={22} rx={11} className="chip-bg" />
+          <text x={cw / 2} y={15} textAnchor="middle" className="chip-text">
+            {text}
+          </text>
+        </g>
       )}
     </g>
   );

@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Agents } from './components/Agents';
 import { MapView } from './components/MapView';
 import { Requests } from './components/Requests';
-import { StopAlerts } from './components/StopAlerts';
-import { Streams, type NowPlaying } from './components/Streams';
+import { AgentPills } from './components/AgentPills';
+import { NeedsYou } from './components/NeedsYou';
+import { Radio, type NowPlaying } from './components/Radio';
 import { Timeline } from './components/Timeline';
 import { lerp, lerpAngle } from './geo';
 import { createSource, VIZ_API } from './source';
@@ -37,6 +38,23 @@ function applyLive(s: Snapshot | null, m: LiveMsg): Snapshot | null {
     default:
       return s;
   }
+}
+
+const COLL: Record<string, string> = { object: 'objects', lane_status: 'lane_status', permission: 'permissions', weather: 'weather', transmission: 'transmissions', decision: 'decisions', clip: 'clips' };
+const KEYS = ['_id', 'callsign', 'from', 'to', 'transcript', 'agent', 'intent_action', 'outcome', 'rule', 'state', 'reason', 'enabled', 'mode', 'tier', 'lane_id', 'status', 'alt_ft', 'wind', 'visibility_sm'];
+/** One change event as a compact line for the database strip. */
+function dbLine(m: LiveMsg): { coll: string; json: string; t: string; at: number } | null {
+  const coll = COLL[m.type];
+  if (!coll || !m.doc || typeof m.doc !== 'object') return null;
+  const parts: string[] = [];
+  for (const k of KEYS) {
+    const v = m.doc[k];
+    if (v == null || v === '' || typeof v === 'object') continue;
+    if (k === '_id' && String(v).length > 16) continue;
+    parts.push(`${k}: ${typeof v === 'string' ? JSON.stringify(v.length > 60 ? v.slice(0, 57) + '…' : v) : typeof v === 'number' ? Math.round(v * 10) / 10 : v}`);
+    if (parts.length >= 6) break;
+  }
+  return { coll, json: `{${parts.join(', ')}}`, t: hhmmss(Date.now()), at: Date.now() };
 }
 
 /** Object positions at time t, interpolated from /viz/tracks; metadata from the snapshot. */
@@ -94,6 +112,8 @@ export default function App() {
   const [solo, setSolo] = useState('all');
   const [tracks, setTracks] = useState<{ a: number; b: number; data: Tracks } | null>(null);
   const [histClips, setHistClips] = useState<Clip[]>([]);
+  const [drawer, setDrawer] = useState(false);
+  const [dbEvent, setDbEvent] = useState<{ n: number; coll: string; json: string; t: string; at: number } | null>(null);
 
   // ---- audio: one real <audio> element, a small queue for solo listening ----
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -159,6 +179,8 @@ export default function App() {
     const stop = ds.live(
       (m) => {
         setLiveSnap((s) => applyLive(s, m));
+        const ev = dbLine(m);
+        if (ev) setDbEvent((p) => (ev.coll === 'objects' && p && p.coll !== 'objects' && Date.now() - p.at < 6000 ? p : { ...ev, n: (p?.n ?? 0) + 1 }));
         if (m.type === 'transmission' && modeRef.current === 'live' && soloRef.current !== 'all') {
           const t = m.doc as Transmission;
           if (t.stream_id === soloRef.current && t.clip_id && t.audio_id) enqueue({ clipId: t.clip_id, label: txLabel(t) });
@@ -331,7 +353,7 @@ export default function App() {
   if (!world) {
     return (
       <div className="boot">
-        <h1>PHYLAX TOWER</h1>
+        <h1>Phylax Tower</h1>
         {loadError ? (
           <>
             <p className="warn-text">The visualizer API at {VIZ_API} is not answering.</p>
@@ -348,6 +370,16 @@ export default function App() {
   }
 
   const actor = controller === 'all' ? actAs : controller;
+  const laneName = (id: string | null) => world.lanes.find((l) => l._id === id)?.name.replace(/^Runway/, 'runway').replace(/^Taxiway/, 'taxiway') ?? id ?? '';
+  const conflict = (snap?.lane_status ?? []).find((l) => l.state === 'conflict');
+  const situation: { tone: 'ok' | 'warn' | 'stop'; text: string } = stopsAll[0]
+    ? { tone: 'stop', text: `Stop in effect · ${stopsAll[0].target.join(', ') || 'traffic'} held at ${laneName(stopsAll[0].lane_id)}` }
+    : conflict
+      ? { tone: 'stop', text: `Conflict · ${laneName(conflict._id)}` }
+      : pendingShown.length
+        ? { tone: 'warn', text: `${pendingShown.length} proposal${pendingShown.length > 1 ? 's' : ''} waiting for you` }
+        : { tone: 'ok', text: 'All clear' };
+  const wx = snap?.weather;
   return (
     <div className={`app ${live ? 'mode-live' : 'mode-history'}`}>
       <header className="topbar">
@@ -356,125 +388,143 @@ export default function App() {
             <i />
             <i />
             <i />
-            <i />
           </span>
-          <b>PHYLAX TOWER</b>
-          <span className="muted">
-            {world.tower.name} · {world.tower.icao}
-          </span>
-        </div>
-        <nav className="ctl-switch" aria-label="Controller view">
-          <span className="cap">View as</span>
-          <div className="seg" role="group">
-            <button className={controller === 'all' ? 'on' : ''} onClick={() => setController('all')}>
-              All
-            </button>
-            {world.controllers.map((c) => {
-              const n = (snap?.pending ?? []).filter((d) => d.controller_id === c._id).length;
-              const st = stopsAll.filter((d) => d.controller_id === c._id).length;
-              return (
-                <button key={c._id} className={controller === c._id ? 'on' : ''} onClick={() => setController(c._id)} title={c.role === 'supervisor' ? 'Supervisor: sees and may act on everything' : `${c.lanes.length} lanes, ${c.streams.length} streams`}>
-                  {c.name}
-                  {st > 0 && (
-                    <span className="count stopct" title={`${st} stop in effect on their lanes`}>
-                      ■ {st}
-                    </span>
-                  )}
-                  {n > 0 && (
-                    <span className="count hot" title={`${n} waiting for approval`}>
-                      {n}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-        <div className="status">
-          {ds.mock && <span className="pill mock">MOCK DATA</span>}
-          {snap?.weather && (
-            <span className="muted small wx">
-              wind {snap.weather.wind ?? '---'} · vis {snap.weather.visibility_sm ?? '--'} SM
+          <div>
+            <b>Phylax Tower</b>
+            <span>
+              {world.tower.name} · {world.tower.icao}
             </span>
-          )}
+          </div>
+        </div>
+        <div className="seg" role="group" aria-label="View as">
+          <span className="seg-cap">View as</span>
+          <button className={controller === 'all' ? 'on' : ''} onClick={() => setController('all')}>
+            All
+          </button>
+          {world.controllers.map((c) => {
+            const n = (snap?.pending ?? []).filter((d) => d.controller_id === c._id).length;
+            const st = stopsAll.filter((d) => d.controller_id === c._id).length;
+            return (
+              <button key={c._id} className={controller === c._id ? 'on' : ''} onClick={() => setController(c._id)}>
+                {c.name}
+                {st > 0 && <i className="dotc stop" title={`${st} stop in effect`} />}
+                {n > 0 && <i className="dotc warn" title={`${n} waiting for approval`} />}
+              </button>
+            );
+          })}
+        </div>
+        <div className="clock-block">
+          <span className="clock mono">{hhmmss(viewT)}</span>
+          <span className="clock-sub">{wx ? `UTC · wind ${wx.wind ?? '---'} · vis ${wx.visibility_sm ?? '--'} SM` : 'UTC'}</span>
+        </div>
+        <div className="top-right">
+          <AgentPills ds={ds} permissions={snap?.permissions ?? []} by={actor} readOnly={!live} />
+          {ds.mock && <span className="pill quiet">Mock</span>}
           {live ? (
             <span className={`pill ${conn === 'open' ? 'live' : 'down'}`}>
-              <span className="dot" /> {conn === 'open' ? 'LIVE' : conn === 'connecting' ? 'CONNECTING' : 'FEED LOST · RETRYING'}
+              <span className="dot" /> {conn === 'open' ? 'LIVE' : conn === 'connecting' ? 'CONNECTING' : 'FEED LOST'}
             </span>
           ) : (
-            <span className="pill history">◼ HISTORY</span>
+            <span className="pill history">HISTORY</span>
           )}
-          <span className="mono clock">{hhmmss(viewT)}Z</span>
         </div>
       </header>
 
       {!live && (
         <div className="history-banner" role="status">
           <span>
-            <b>HISTORY · NOT LIVE.</b> You are looking at <span className="mono">{hhmmss(playhead)}Z</span>, {ago(now - playhead)} ago, rebuilt from the stored records. Controller actions are disabled.
+            Viewing <b className="mono">{hhmmss(playhead)}</b> · not live · {ago(now - playhead)} ago · actions disabled
           </span>
-          <button className="btn" onClick={goLive}>
-            Back to LIVE
+          <button className="btn amber" onClick={goLive}>
+            Back to live
           </button>
         </div>
       )}
 
-      <StopAlerts ds={ds} world={world} stops={stopsShown} transmissions={snap?.transmissions ?? []} actor={actor} viewT={viewT} readOnly={!live} />
-
       <main className="main">
         <section className="map-wrap">
           <MapView world={world} objects={objects} laneStatus={snap?.lane_status ?? []} ownedLanes={ownedLanes} flagged={flagged} smooth={live} />
-          {!live && <div className="map-stamp mono">HISTORY {hhmmss(playhead)}Z</div>}
-          {selected && (
-            <div className="map-filter">
-              {selected.role === 'supervisor' ? 'Supervisor view: every lane and stream' : `${selected.name}: ${selected.lanes.length} lanes highlighted, the rest dimmed`}
-            </div>
-          )}
+          <div className={`situation tone-${situation.tone}`}>{situation.text}</div>
+          {selected && selected.role !== 'supervisor' && <div className="map-filter">{selected.name} · own lanes highlighted</div>}
         </section>
-        <div className="side">
-          <Requests ds={ds} world={world} pending={snap?.pending ?? []} decisions={snap?.decisions ?? []} controller={controller} actAs={actAs} onActAs={setActAs} readOnly={!live} />
-          <Agents ds={ds} permissions={snap?.permissions ?? []} agentState={snap?.agent_state ?? liveSnap?.agent_state ?? []} by={actor} readOnly={!live} />
-        </div>
-        <Streams
-          world={world}
-          streams={streams}
-          transmissions={snap?.transmissions ?? []}
-          decisions={snap?.decisions ?? []}
-          activeStopIds={new Set(stopsAll.map((d) => d._id))}
-          loading={!snap}
-          solo={solo}
-          onSolo={(id) => {
-            silence();
-            setSolo(id);
-          }}
-          viewT={viewT}
-          live={live}
-          audioRef={audioRef}
-          nowPlaying={nowPlaying}
-          blocked={blocked}
-          onPlay={(t) => {
-            queue.current = [];
-            if (t.clip_id) startClip({ clipId: t.clip_id, label: txLabel(t) });
-          }}
-          onEnded={onEnded}
-          emptyNote={selected ? `${selected.name} owns no radio stream.` : null}
-        />
+        <aside className="side">
+          <Radio
+            world={world}
+            streams={streams}
+            transmissions={snap?.transmissions ?? []}
+            decisions={snap?.decisions ?? []}
+            loading={!snap}
+            solo={solo}
+            onSolo={(id) => {
+              silence();
+              setSolo(id);
+            }}
+            live={live}
+            audioRef={audioRef}
+            nowPlaying={nowPlaying}
+            blocked={blocked}
+            onPlay={(t) => {
+              queue.current = [];
+              if (t.clip_id) startClip({ clipId: t.clip_id, label: txLabel(t) });
+            }}
+            onEnded={onEnded}
+            emptyNote={selected ? `${selected.name} owns no radio stream.` : null}
+          />
+          <NeedsYou
+            ds={ds}
+            world={world}
+            stops={stopsShown}
+            pending={pendingShown}
+            decisions={snap?.decisions ?? []}
+            transmissions={snap?.transmissions ?? []}
+            actor={actor}
+            showActAs={controller === 'all'}
+            onActAs={setActAs}
+            readOnly={!live}
+            onAudit={() => setDrawer(true)}
+          />
+        </aside>
       </main>
 
-      <Timeline
-        from={from ?? now - 60_000}
-        to={now}
-        playhead={playhead}
-        live={live}
-        playing={playing}
-        speed={speed}
-        marks={marks}
-        streams={world.streams}
-        onScrub={scrub}
-        onLive={goLive}
-        onPlay={setPlaying}
-        onSpeed={setSpeed}
-      />
+      <footer className="bottom">
+        <Timeline from={from ?? now - 60_000} to={now} playhead={playhead} live={live} playing={playing} speed={speed} marks={marks} streams={world.streams} onScrub={scrub} onLive={goLive} onPlay={setPlaying} onSpeed={setSpeed} />
+        <div className="dbstrip">
+          <div className="db-title">
+            <b>
+              <span className="dot" /> Live database
+            </b>
+            <span>MongoDB Atlas · change stream</span>
+          </div>
+          <div className="db-event mono" key={dbEvent?.n ?? 0}>
+            {dbEvent ? (
+              <>
+                <span className="db-coll">{dbEvent.coll}</span>
+                <span className="db-json">{dbEvent.json}</span>
+                <span className="db-t">{dbEvent.t}</span>
+              </>
+            ) : (
+              <span className="db-json">waiting for the first change event…</span>
+            )}
+          </div>
+        </div>
+      </footer>
+
+      {drawer && (
+        <div className="drawer-back" onClick={() => setDrawer(false)}>
+          <div className="drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Audit log">
+            <header className="drawer-head">
+              <h2>Audit log</h2>
+              <button className="btn" onClick={() => setDrawer(false)}>
+                Close
+              </button>
+            </header>
+            <div className="drawer-body">
+              <Requests ds={ds} world={world} pending={snap?.pending ?? []} decisions={snap?.decisions ?? []} controller={controller} actAs={actAs} onActAs={setActAs} readOnly={!live} />
+              <Agents ds={ds} permissions={snap?.permissions ?? []} agentState={snap?.agent_state ?? liveSnap?.agent_state ?? []} by={actor} readOnly={!live} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -49,7 +49,7 @@ export function Agents({ ds, permissions, agentState = [], by, readOnly }: Props
   return (
     <section className="panel agents">
       <header className="panel-head">
-        <h2>Agent switches</h2>
+        <h2>Agent identities</h2>
         <label className={`master ${masterOn ? 'on' : 'off'}`} title="Master switch: turns every agent off at once">
           <span>MASTER {masterOn ? 'ON' : 'OFF'}</span>
           <Toggle on={masterOn} disabled={readOnly || !master} onChange={(v) => set('system', { enabled: v })} label="Master switch" />
