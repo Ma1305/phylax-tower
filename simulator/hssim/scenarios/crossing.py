@@ -2,7 +2,7 @@
 
 AC8646 is cleared to land on runway 04 by Tower. About ``lead_s`` seconds before it passes
 taxiway D, Ground clears fire truck TRUCK1 to cross runway 04 at D. The truck reads back
-and rolls. If Hold Short gets a stop to the truck in time it holds short; if not, it
+and rolls. If Phylax Tower gets a stop to the truck in time it holds short; if not, it
 crosses in front of the landing aircraft.
 """
 

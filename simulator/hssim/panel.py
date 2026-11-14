@@ -27,7 +27,7 @@ log = logging.getLogger("hssim")
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hold Short simulator</title>
+<title>Phylax Tower simulator</title>
 <style>
   :root { --bg:#0e1116; --panel:#171b22; --line:#2a303b; --text:#e6e9ee; --dim:#98a2b3;
           --go:#2f81f7; --stop:#e5534b; --ok:#3fb950; --bad:#e5534b; }
@@ -65,7 +65,7 @@ PAGE = """<!doctype html>
   .result.ok { color:var(--ok); } .result.bad { color:var(--bad); }
   @media (max-width:640px){ .card{flex-direction:column; align-items:stretch;} }
 </style></head><body><main>
-<h1>Hold Short simulator</h1>
+<h1>Phylax Tower simulator</h1>
 <div class="sub">Pick a simulation, then watch the tower react in the
   <a id="viz" target="_blank" rel="noopener">visualizer</a>. One runs at a time.</div>
 <div id="status"><span class="dot" id="dot"></span><span id="state">Idle</span>
@@ -163,7 +163,7 @@ def create_panel_app(args: argparse.Namespace, token: str | None = None) -> Any:
     lines: deque[str] = deque(maxlen=160)
     logging.getLogger("hssim").addHandler(_Tail(lines))
     state: dict[str, Any] = {"task": None, "scenario": None, "started": 0.0, "last": None}
-    app = FastAPI(title="Hold Short simulator")
+    app = FastAPI(title="Phylax Tower simulator")
     app.state.sim_state, app.state.token = state, token
     # Only answer requests addressed to this machine by name. Without this, a web site
     # whose hostname is re-pointed at 127.0.0.1 (DNS rebinding) could load this page and

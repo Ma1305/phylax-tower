@@ -1,4 +1,4 @@
-"""Command line for the Hold Short simulator.
+"""Command line for the Phylax Tower simulator.
 
     python -m hssim list
     python -m hssim run crossing --api http://localhost:8000
@@ -219,7 +219,7 @@ async def serve(args: argparse.Namespace) -> None:
     sim.shared["inject_queue"] = queue
     sim.shared["status"] = "normal traffic"
 
-    control = FastAPI(title="Hold Short simulator control")
+    control = FastAPI(title="Phylax Tower simulator control")
 
     @control.get("/status")
     def status() -> dict[str, Any]:

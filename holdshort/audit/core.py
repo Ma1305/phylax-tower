@@ -201,7 +201,7 @@ def _j(xs: Any) -> str:
 
 def _summary(kind: str, r: dict, it: dict) -> str:
     if kind == "transmission":
-        who = "Hold Short (synthetic) " if r.get("synthetic") else ""
+        who = "Phylax Tower (synthetic) " if r.get("synthetic") else ""
         s = (f"{who}{r.get('from')} -> {r.get('to')} on {r.get('stream_id')}: "
              f"{r.get('kind')}/{r.get('instruction')}")
         if r.get("runway"):

@@ -23,7 +23,7 @@ recording drops: "cross four at Delta"). The other calls are reconstructed in st
 phraseology. The calls on the Ground and Ops streams about the other
 emergency are invented context, not from the record.
 
-What the simulator adds: if Hold Short tells Truck 1 to stop by name, the crew brakes after
+What the simulator adds: if Phylax Tower tells Truck 1 to stop by name, the crew brakes after
 ``crew_reaction_s``. The controller's own stop calls are played as they happened and, as on
 the night, do not stop the truck.
 """
@@ -216,7 +216,7 @@ async def run(sim: Sim, opts: dict[str, Any]) -> dict[str, Any]:
     sim.tick_hooks.append(follow)
     sim.flow(vehicles(), name="vehicles")
 
-    # ---- Hold Short's stop, addressed to Truck 1 by name
+    # ---- Phylax Tower's stop, addressed to Truck 1 by name
     def on_stop(actor: Actor, call: dict[str, Any]) -> None:
         if result["stop_received"] or state["frozen"]:
             return
@@ -368,7 +368,7 @@ async def run(sim: Sim, opts: dict[str, Any]) -> dict[str, Any]:
     await sim.say(TWR, "JZA646", JET_CLEAR)
     if truck.held:
         # the vehicles still have an emergency to reach: a controller-approved instruction
-        # from Hold Short, or failing that the controller himself, sends them across
+        # from Phylax Tower, or failing that the controller himself, sends them across
         approved = await sim.until(
             lambda: any(c.get("action") != "stop" and "cross" in (c.get("text") or "").lower()
                         for c in truck.calls),

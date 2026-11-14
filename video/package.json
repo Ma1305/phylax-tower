@@ -1,7 +1,7 @@
 {
   "name": "holdshort-video",
   "version": "1.0.0",
-  "description": "Render project for the 60-second Hold Short demo video",
+  "description": "Render project for the 60-second Phylax Tower demo video",
   "scripts": {
     "data": "node scripts/prepare.mjs",
     "render": "node scripts/prepare.mjs && remotion render src/index.ts HoldShort out/preview.mp4 --public-dir=assets",

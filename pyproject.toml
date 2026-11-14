@@ -1,7 +1,7 @@
 [project]
 name = "hold-short"
 version = "0.0.0"
-description = "Hold Short - auditable tower-radio agents on MongoDB Atlas"
+description = "Phylax Tower - auditable tower-radio agents on MongoDB Atlas"
 requires-python = ">=3.11"
 dependencies = [
     "pymongo>=4.10",

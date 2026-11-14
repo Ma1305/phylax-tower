@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build, push and deploy the two Hold Short APIs to Cloud Run.
+# Build, push and deploy the two Phylax Tower APIs to Cloud Run.
 #   deploy/cloudrun.sh [--dry-run]
 # Defaults: project ambient-handler-460806-t7, region us-east4 (override with PROJECT_ID, REGION, ...).
 # See deploy/README.md for what must exist first. Prints the two service URLs at the end.

@@ -612,7 +612,7 @@ def create_stub_app(world: World | None = None, *, ingest_key: str | None = None
     ``ingest_key``: when set, every ``/ingest/*`` call must send it as ``X-Ingest-Key``.
     ``auto_stop_after_s``: when set, turns on the safety rule (see the module docstring).
     """
-    app = FastAPI(title="Hold Short stub tower")
+    app = FastAPI(title="Phylax Tower stub tower")
     app.state.store = StubStore(world, auto_stop_after_s=auto_stop_after_s)
     app.state.ingest_key = ingest_key
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])

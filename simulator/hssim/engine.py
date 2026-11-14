@@ -1,6 +1,6 @@
 """The simulation loop: moves actors, reports positions once a second, keeps each radio
 stream to one speaker at a time, posts every utterance when it ends, and listens for what
-Hold Short tells traffic so the traffic can obey.
+Phylax Tower tells traffic so the traffic can obey.
 
 All timestamps sent to the tower are the real current UTC time (see the contract). ``speed``
 only shortens the waits; it never changes the timestamps.
@@ -313,7 +313,7 @@ class Sim:
             handler(call)
 
     def _obey(self, call: dict[str, Any]) -> None:
-        """Default reaction of traffic to what Hold Short says on the radio."""
+        """Default reaction of traffic to what Phylax Tower says on the radio."""
         action = call.get("action")
         text = (call.get("text") or "").lower()
         targets = [self.by_callsign(cs) for cs in call.get("target") or []]
