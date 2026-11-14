@@ -16,7 +16,7 @@ import scriptJson from "../script.json";
 export type Status = "code" | "docs" | "missing";
 export type Named = { name: string; status: Status; source: string | null };
 export type Model = { collection: string; collection_status: Status; status: Status; source: string | null; rows: [string, string][] };
-export type Asset = { file: string; kind: "video" | "audio" | "image"; scene: string; optional: boolean; contains: string; present: boolean };
+export type Asset = { file: string; kind: "video" | "audio" | "image"; scene: string; optional: boolean; contains: string; present: boolean; credit?: string; with_audio?: boolean };
 export const data = dataJson as unknown as {
   assets: Record<string, Asset>;
   world: {
@@ -34,11 +34,12 @@ export const data = dataJson as unknown as {
 };
 export type SceneSpec = {
   id: string; start_s: number; end_s: number; vo_text: string;
-  title?: string; tagline?: string; built_on?: string;
-  cards?: { from: string; to: string; text: string }[];
+  title?: string; tagline?: string; built_on?: string; punchline?: string; cards_note?: string;
+  cards?: { time?: string; from: string; to: string; text: string }[];
+  news?: { kicker: string; headline: string; subline: string; facts: string[]; source: string };
 };
 export const script = scriptJson as unknown as {
-  config: { team_names: string[]; repo_url: string; demo_url: string; width: number; height: number; fps: number };
+  config: { product_name: string; hide_missing_optional?: boolean; team_names: string[]; repo_url: string; demo_url: string; width: number; height: number; fps: number };
   scenes: SceneSpec[];
 };
 /** A name that came from the repo, or a visible placeholder when it was not found. */
@@ -184,13 +185,14 @@ export const Slot: React.FC<{
 }> = ({ file, x, y, w, h, filter, style, padRight = 0 }) => {
   const frame = useCurrentFrame();
   const a = data.assets[file];
+  if (!a?.present && a?.optional && script.config.hide_missing_optional) return null;
   const base: React.CSSProperties = { position: "absolute", left: x, top: y, width: w, height: h, overflow: "hidden", boxSizing: "border-box", borderRadius: 4, ...style };
   if (a?.present) {
     return (
       <div style={{ ...base, border: `1.5px solid ${C.line}`, background: "#000" }}>
         {a.kind === "image"
           ? <Img src={staticFile(file)} style={{ width: "100%", height: "100%", objectFit: "cover", filter }} />
-          : <OffthreadVideo muted src={staticFile(file)} style={{ width: "100%", height: "100%", objectFit: "cover", filter }} />}
+          : <OffthreadVideo muted={!a.with_audio} src={staticFile(file)} style={{ width: "100%", height: "100%", objectFit: "cover", filter }} />}
       </div>
     );
   }
@@ -224,9 +226,10 @@ export const AudioSlot: React.FC<{ file: string; from: number; x: number; y: num
 };
 
 // ------------------------------------------------------------------ wordmark
-/** HOLD SHORT wordmark over a runway holding-position marking (two solid, two dashed lines). */
+/** Product wordmark (script.json config.product_name) over a runway holding-position marking (two solid, two dashed lines). */
 export const Wordmark: React.FC<{ k: number; size?: number }> = ({ k, size = 150 }) => {
-  const w = size * 6.4;
+  const name = script.config.product_name.toUpperCase();
+  const w = size * 0.66 * name.length;
   const bar = (dashed: boolean, i: number) => (
     <div key={i} style={{
       height: size * 0.055, marginTop: size * 0.045, width: `${100 * ease(k * 1.4 - i * 0.1)}%`,
@@ -238,7 +241,7 @@ export const Wordmark: React.FC<{ k: number; size?: number }> = ({ k, size = 150
       <div style={{
         fontFamily: SANS, fontWeight: 800, fontSize: size, letterSpacing: lerp(size * 0.3, size * 0.06, ease(k)), lineHeight: 1,
         color: C.text, opacity: clamp01(k * 3), transform: `scale(${lerp(1.18, 1, ease(k))})`, whiteSpace: "nowrap",
-      }}>HOLD SHORT</div>
+      }}>{name}</div>
       <div style={{ marginTop: size * 0.12 }}>{[false, false, true, true].map(bar)}</div>
     </div>
   );

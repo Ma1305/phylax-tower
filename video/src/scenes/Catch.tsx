@@ -160,7 +160,7 @@ const BeatE: React.FC<{ q: number }> = ({ q }) => (
     <div style={{ position: "absolute", left: X, top: Y + 70 }}>
       <Wave seed="spk" w={W} h={300} bars={70} color={C.red} amp={lin(q, 0.02, 0.1) * (1 - lin(q, 0.8, 0.95) * 0.8)} speed={1.6} />
     </div>
-    <div style={{ position: "absolute", left: X, top: Y + 420, fontFamily: SANS, fontWeight: 800, fontSize: 72, color: C.text }}>Hold Short speaks.</div>
+    <div style={{ position: "absolute", left: X, top: Y + 420, fontFamily: SANS, fontWeight: 800, fontSize: 72, color: C.text }}>{script.config.product_name} speaks.</div>
   </Enter>
 );
 
@@ -177,6 +177,7 @@ export const Catch: React.FC<{ scene: SceneSpec }> = () => {
         <span style={{ fontFamily: SANS, fontWeight: 800, fontSize: 44 }}>Same calls. This time it is caught.</span>
       </div>
       <Slot file="rec_safety_on.mp4" x={40} y={200} w={880} h={495} />
+      <Slot file="cam_catch.mp4" x={40} y={712} w={356} h={200} />
 
       <div style={{ position: "absolute", left: X, top: 110, width: W, display: "flex", gap: 10 }}>
         {STEPS.map((s, i) => (

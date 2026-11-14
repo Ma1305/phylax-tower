@@ -21,9 +21,11 @@ export const Team: React.FC<{ scene: SceneSpec }> = () => {
           );
         })}
       </div>
-      <Slot file="team.png" x={hasPhoto ? 1080 : 1340} y={hasPhoto ? 150 : 170} w={hasPhoto ? 680 : 420} h={hasPhoto ? 383 : 200} />
-      <div style={{ position: "absolute", left: 0, right: 0, top: 610, display: "flex", justifyContent: "center", opacity: lin(p, 0.5, 0.52) }}>
-        <Wordmark k={seg(p, 0.5, 0.72)} size={130} />
+      {hasPhoto && !data.assets["cam_intro.mp4"]?.present
+        ? <Slot file="team.png" x={1040} y={150} w={720} h={405} />
+        : <Slot file="cam_intro.mp4" x={1040} y={150} w={720} h={405} />}
+      <div style={{ position: "absolute", left: 0, right: 0, top: 640, display: "flex", justifyContent: "center", opacity: lin(p, 0.5, 0.52) }}>
+        <Wordmark k={seg(p, 0.5, 0.72)} size={110} />
       </div>
     </Radar>
   );

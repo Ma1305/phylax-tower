@@ -15,7 +15,7 @@ const SCENES: Record<string, React.FC<{ scene: SceneSpec }>> = {
 const { fps, width, height } = script.config;
 const f = (s: number) => Math.round(s * fps);
 const totalFrames = f(Math.max(...script.scenes.map((s) => s.end_s)));
-const voText = (s: SceneSpec) => s.vo_text.replace("{names}", script.config.team_names.join(", "));
+const voText = (s: SceneSpec) => s.vo_text.replace("{names}", script.config.team_names.join(", ")).split("{product}").join(script.config.product_name);
 
 /** Split a scene's vo_text into caption chunks, timed in proportion to their length. */
 const captionsOf = (s: SceneSpec) => {

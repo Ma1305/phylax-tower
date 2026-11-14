@@ -1,4 +1,7 @@
-# Hold Short: 60-second demo video
+# Phylax Tower: 60-second demo video
+
+The product name on screen and in the captions is `config.product_name` in `script.json`
+(currently "Phylax Tower"; the code and repo still say `holdshort`).
 
 Render project for the submission video. Built with **Remotion 4** (React, headless Chrome,
 bundled ffmpeg; no system ffmpeg and no sudo needed). It renders today with placeholders and
@@ -46,13 +49,44 @@ A present file replaces its placeholder card; an absent one keeps the card.
 | file | scene | what it should contain |
 |---|---|---|
 | `vo.wav` | all | Full voiceover from 0:00. Absent = silent render on the `script.json` timings. |
-| `rec_safety_off.mp4` | 1 incident | Visualizer replaying the reconstruction with Safety OFF. 10 s. Shown desaturated behind the cards. |
+| `incident_photo.jpg` | 1 incident | **In the repo.** Real photo: NTSB investigation photo "View of both vehicles after collision". |
+| `incident_map.png` | 1 incident | **In the repo.** Real graphic: NTSB preliminary report figure 2 (Truck 1 and the jet at 23:37:04). |
+| `incident_clip.mp4` | 1 incident | Optional real footage; when present it replaces the photo in the first 4 s. |
 | `rec_safety_on.mp4` | 4 catch | The same calls with Safety ON, the stop routed to the owning controller. 16 s. |
-| `stop_spoken.wav` | 4 catch | The stop call Hold Short speaks, about 1.5 s. Starts at the SPEAK beat (86 % into scene 4, about 0:35.8). |
-| `rec_blocked_write.mp4` | 5 audit | An agent's forbidden write and the resulting `security_events` row. About 4 s. |
-| `rec_switch_off.mp4` | 5 audit | A controller switches an agent off; its next intent is refused. About 5 s. |
+| `stop_spoken.wav` | 4 catch | The stop call the product speaks, about 1.5 s. Starts at the SPEAK beat (86 % into scene 4, about 0:35.8). |
+| `rec_blocked_write.mp4` | 5 audit | An agent's forbidden write and the resulting `security_events` row. About 7 s. |
+| `rec_switch_off.mp4` | 5 audit | A controller switches an agent off; its next intent is refused. About 4 s. |
 | `rec_time_travel.mp4` | 5 audit | Visualizer timeline scrubbed back through the event. About 5 s. |
-| `team.png` | 2 team | Optional. Real photo or avatars, no generated faces. |
+| `cam_intro.mp4` | 2 team | **You on camera** (optional): the team saying who you are. 4 s. Large frame, right side. |
+| `cam_catch.mp4` | 4 catch | **You on camera** (optional): presenter picture-in-picture under the recording. 16 s. |
+| `cam_audit.mp4` | 5 audit | **You on camera** (optional): presenter picture-in-picture under the recording. 16 s. |
+| `cam_close.mp4` | 6 close | **You on camera** (optional): the team signing off. 5.5 s. Bottom right. |
+| `team.png` | 2 team | Optional still photo, used only if `cam_intro.mp4` is absent. Real photo, no generated faces. |
+
+### Recording yourselves
+
+Record landscape 16:9 (phone sideways or webcam), at least as long as the slot, and save with
+the `cam_*.mp4` name above. Camera clips are muted by default so they do not fight `vo.wav`;
+to use a clip's own sound, set `"with_audio": true` on its line in `assets.json`. While a
+camera clip is missing its slot shows a dashed placeholder; for a final cut without some of
+them set `config.hide_missing_optional` to `true` in `script.json` and the empty optional
+slots disappear.
+
+### Real incident media (scene 1)
+
+Scene 1 is a news-style report built on real material from the NTSB investigation
+[DCA26MA161](https://www.ntsb.gov/investigations/pages/DCA26MA161.aspx):
+
+- `incident_photo.jpg`: https://www.ntsb.gov/investigations/PublishingImages/DCA26MA161-image.jpg (downscaled to 2856 px wide).
+- `incident_map.png`: figure 2 of the preliminary report, https://data.ntsb.gov/carol-repgen/api/Aviation/ReportMain/GenerateNewestReport/202674/pdf
+- The headline facts and the two clearance times (23:35:07, 23:37:04) in `script.json` are from that report.
+  The clearance wording on the cards is the repo's reconstruction, labelled as such on screen.
+- NTSB material is a US government work; the on-screen credits come from the `credit` field in `assets.json`.
+  The aerial base imagery inside the figure is third-party imagery as published by the NTSB.
+- Real video: the NTSB published b-roll at https://www.youtube.com/watch?v=zaPcmyCYiMI . It is not
+  downloaded here; if you obtain it, save 5 s of it as `incident_clip.mp4`.
+- The photo shows the damaged aircraft with its airline livery. This was a fatal accident; if you would
+  rather not show the wreckage, delete `incident_photo.jpg` and supply another image under the same name.
 
 Recordings should be 16:9 and at least as long as their slot (they are cropped to fit, muted,
 and start at the slot's first frame). Names, repo URL and demo URL: edit `config` at the top of
@@ -90,6 +124,7 @@ from `v2/base`):
 | Intent actions (`stop`, forbidden `clear`), outcomes (`executed`, `rejected`) | `holdshort/contracts.py`, `holdshort/safety/engine.py` |
 | Stream ids, lane id, owning controller (`LGA_TWR`, `RWY_04_22`, `ctl_local`) | `docs/v2/world_lga.json` (`holdshort/world/lga.json` is preferred once it exists) |
 | The two clearance transcripts (scene 1, reused in 4a/4b) | copied verbatim from `scenarios/laguardia/script.json` events `t02` and `t08` into `video/script.json` |
+| Scene 1 headline facts, times, photo and map | NTSB preliminary report DCA26MA161 (not from the repo; see "Real incident media") |
 | Example values in documents (callsigns, error code 121, `intents_procedures action=clear`) | `scenarios/laguardia/script.json`, field descriptions in `holdshort/contracts.py`; listed in `sources.json` |
 
 Only in the v2 spec so far, not yet in code on `v2/base` (shown under their spec names, and
@@ -115,7 +150,9 @@ Anything not found in code or spec is drawn as a red `[PLACEHOLDER name]` and li
 
 ## Placeholders still open
 
-- Assets: all eight files in the table above (`team.png` is optional).
+- Assets: everything in the table above except the two NTSB images. Required: `vo.wav`,
+  `rec_safety_on.mp4`, `stop_spoken.wav`, the three scene 5 recordings. Optional: the four
+  `cam_*.mp4` clips, `incident_clip.mp4`, `team.png`.
 - `script.json` config: `team_names` (four `[NAME n]`), `demo_url` (`[DEMO URL]`).
   `repo_url` is filled in.
 - Spec-only names in the table above (`ScopedDb`, `state_events`, `context`, the
@@ -123,15 +160,16 @@ Anything not found in code or spec is drawn as a red `[PLACEHOLDER name]` and li
 - The spoken stop phrase is not shown as text (it is not in code on `v2/base`); scene 4e shows
   only the waveform and the `stop_spoken.wav` slot.
 
-## Content rules followed
+## Content rules
 
-1920x1080, 30 fps, 59.5 s. Captions burned in for every `vo_text` line. No crash or fire
-imagery, no airline logos, no pilot names, no real ATC audio, no faces. Scene 1 is labelled
-RECONSTRUCTION. There is no "clear" intent anywhere except as the forbidden write in scene 5.
+1920x1080, 30 fps, 59.5 s. Captions burned in for every `vo_text` line. No real ATC audio and no
+generated faces. Scene 1 now uses real NTSB incident imagery at the team's request, which
+replaces the earlier "no crash imagery, no airline logos" rule for that scene only; no names of
+the crew appear. There is no "clear" intent anywhere except as the forbidden write in scene 5.
 
 ## Last verified render
 
-Placeholders only, `assets/` empty:
+`assets/` holding only the two NTSB images:
 
 ```
 codec_type=video width=1920 height=1080 r_frame_rate=30/1 codec_type=audio r_frame_rate=0/0 duration=59.562667

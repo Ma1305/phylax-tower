@@ -158,7 +158,8 @@ export const Audit: React.FC<{ scene: SceneSpec }> = ({ scene }) => {
         ))}
       </div>
       <div key={b} style={{ position: "absolute", inset: 0, opacity: lin(qq, 0, 0.05), transform: `translateX(${lerp(50, 0, seg(qq, 0, 0.07))}px)` }}>
-        <Slot file={FILES[b]} x={40} y={160} w={1100} h={619} />
+        <Slot file={FILES[b]} x={40} y={150} w={1000} h={562} />
+        <Slot file="cam_audit.mp4" x={40} y={726} w={338} h={190} />
         {b === 0 && <Blocked q={qq} />}
         {b === 1 && <SwitchOff q={qq} />}
         {b === 2 && <TimeTravel q={qq} />}

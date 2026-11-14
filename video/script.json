@@ -1,11 +1,18 @@
 {
   "config": {
-    "team_names": ["[NAME 1]", "[NAME 2]", "[NAME 3]", "[NAME 4]"],
+    "product_name": "Phylax Tower",
+    "team_names": [
+      "[NAME 1]",
+      "[NAME 2]",
+      "[NAME 3]",
+      "[NAME 4]"
+    ],
     "repo_url": "github.com/Ma1305/plane-management",
     "demo_url": "[DEMO URL]",
     "width": 1920,
     "height": 1080,
-    "fps": 30
+    "fps": 30,
+    "hide_missing_optional": false
   },
   "scenes": [
     {
@@ -13,29 +20,52 @@
       "start_s": 0,
       "end_s": 10,
       "vo_text": "March 2026. LaGuardia, runway four. A jet is cleared to land. Seconds later, a fire truck is cleared to cross the same runway. Two clearances. One runway.",
-      "title": "MARCH 2026 · LAGUARDIA · RUNWAY 4",
+      "title": "LAGUARDIA · RUNWAY 4 · MARCH 22, 2026",
       "cards": [
-        {"from": "TOWER", "to": "AC8646", "text": "Air Canada eight six four six, LaGuardia tower, wind zero three zero at one two, runway four, cleared to land."},
-        {"from": "TOWER", "to": "TRUCK1", "text": "Truck one and company, cross runway four at Delta."}
-      ]
+        {
+          "time": "23:35:07",
+          "from": "TOWER",
+          "to": "AC8646",
+          "text": "Air Canada eight six four six, LaGuardia tower, wind zero three zero at one two, runway four, cleared to land."
+        },
+        {
+          "time": "23:37:04",
+          "from": "TOWER",
+          "to": "TRUCK1",
+          "text": "Truck one and company, cross runway four at Delta."
+        }
+      ],
+      "news": {
+        "kicker": "INCIDENT REPORT",
+        "headline": "Runway collision at LaGuardia",
+        "subline": "A regional jet landing on runway 4 struck an airport fire truck crossing at taxiway D.",
+        "facts": [
+          "March 22, 2026 · 23:37 local",
+          "2 killed · 39 taken to hospital",
+          "NTSB investigation DCA26MA161 (preliminary)"
+        ],
+        "source": "Facts and images: NTSB preliminary report DCA26MA161"
+      },
+      "cards_note": "Reconstructed wording. Times from the NTSB preliminary report.",
+      "punchline": "TWO CLEARANCES. ONE RUNWAY."
     },
     {
       "id": "team",
       "start_s": 10,
       "end_s": 14,
-      "vo_text": "We're {names}. We built Hold Short."
+      "vo_text": "We're {names}. We built {product}."
     },
     {
       "id": "what",
       "start_s": 14,
       "end_s": 22,
-      "vo_text": "Hold Short is a safety net for control towers. Agents listen to every radio stream, log each call in MongoDB Atlas, and stop clearances that conflict."
+      "vo_text": "{product} is a safety net for control towers. Agents listen to every radio stream, log each call in MongoDB Atlas, and stop clearances that conflict."
     },
     {
       "id": "catch",
       "start_s": 22,
       "end_s": 38,
-      "vo_text": "Same calls, Safety on. ElevenLabs cleans and transcribes each transmission into Atlas. A change stream fires our rule engine: deterministic, no LLM in the decision. The stop goes to the controller who owns the runway, and Hold Short says it on the radio."
+      "vo_text": "Same calls, Safety on. ElevenLabs cleans and transcribes each transmission into Atlas. A change stream fires our rule engine: deterministic, no LLM in the decision. The stop goes to the controller who owns the runway, and {product} says it on the radio."
     },
     {
       "id": "audit",
@@ -48,7 +78,7 @@
       "id": "close",
       "start_s": 54,
       "end_s": 59.5,
-      "vo_text": "Hold Short. The AI can stop traffic, never clear it.",
+      "vo_text": "{product}. The AI can stop traffic, never clear it.",
       "tagline": "Stop, never clear.",
       "built_on": "Built on MongoDB Atlas · ElevenLabs"
     }
