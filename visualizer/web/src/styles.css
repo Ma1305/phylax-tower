@@ -368,7 +368,7 @@ dl.trail-meta dd { color: var(--text); overflow-wrap: anywhere; }
 .badge.out-pending { color: var(--amber); border-color: var(--amber); border-style: dashed; }
 .badge.out-rejected { color: var(--dim); border-color: var(--dim); }
 
-/* ---------- Hold Short's own calls in a stream ---------- */
+/* ---------- Phylax's own calls in a stream ---------- */
 .badge.syn { color: #0d0820; background: var(--violet); border-color: var(--violet); }
 .badge.syn-stop { color: #fff; background: var(--red); border-color: var(--red); }
 .badge.syn-ok { color: var(--violet); border-color: var(--violet); }

@@ -33,18 +33,18 @@ service_url() {
 
 if [ -z "${TOWER_URL:-}" ]; then
   if [ "$DRY_RUN" = 1 ]; then
-    run gcloud run services describe holdshort-tower --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)'
-    TOWER_URL="https://holdshort-tower-XXXX.${REGION}.run.app"
+    run gcloud run services describe phylax-tower --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)'
+    TOWER_URL="https://phylax-tower-XXXX.${REGION}.run.app"
   else
-    TOWER_URL="$(service_url holdshort-tower)"
+    TOWER_URL="$(service_url phylax-tower)"
   fi
 fi
 if [ -z "${VIZ_API_URL:-}" ]; then
   if [ "$DRY_RUN" = 1 ]; then
-    run gcloud run services describe holdshort-viz-api --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)'
-    VIZ_API_URL="https://holdshort-viz-api-XXXX.${REGION}.run.app"
+    run gcloud run services describe phylax-viz-api --project "$PROJECT_ID" --region "$REGION" --format 'value(status.url)'
+    VIZ_API_URL="https://phylax-viz-api-XXXX.${REGION}.run.app"
   else
-    VIZ_API_URL="$(service_url holdshort-viz-api)"
+    VIZ_API_URL="$(service_url phylax-viz-api)"
   fi
 fi
 [ -n "$TOWER_URL" ] && [ -n "$VIZ_API_URL" ] || { echo "could not resolve the API URLs" >&2; exit 1; }

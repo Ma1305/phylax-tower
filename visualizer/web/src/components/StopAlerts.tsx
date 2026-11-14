@@ -13,7 +13,7 @@ interface Props {
 }
 
 /**
- * Stops are autonomous by default (PLAN.md decision 4): Hold Short has already made the call.
+ * Stops are autonomous by default (PLAN.md decision 4): Phylax Tower has already made the call.
  * The owning controller is told, not asked, and can lift the stop (POST /control/revoke).
  */
 export function StopAlerts({ ds, world, stops, transmissions, actor, viewT, readOnly }: Props) {
@@ -51,7 +51,7 @@ export function StopAlerts({ ds, world, stops, transmissions, actor, viewT, read
               </span>
               <div>
                 <b>STOP IN EFFECT</b>
-                <span>{auto ? 'issued by Hold Short · not a request' : `approved by ${ctlName(d.approved_by)}`}</span>
+                <span>{auto ? 'issued by Phylax · not a request' : `approved by ${ctlName(d.approved_by)}`}</span>
               </div>
             </div>
             <div className="stop-body">

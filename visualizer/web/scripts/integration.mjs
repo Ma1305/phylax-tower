@@ -118,7 +118,7 @@ check('lanes change state on the map (clear/occupied -> reserved -> conflict)', 
 
 await page.waitForSelector('.line.synthetic', { timeout: 20000 }).catch(() => {});
 const syn = await text('.line.synthetic');
-check("the stop's outbound call is in its stream, marked as Hold Short's own", /HOLD SHORT · OUTBOUND/.test(syn) && dStop && syn.includes(dStop.text) && /HOLDSHORT/.test(syn), syn);
+check("the stop's outbound call is in its stream, marked as Phylax's own", /PHYLAX · OUTBOUND/.test(syn) && dStop && syn.includes(dStop.text) && /PHYLAX/.test(syn), syn);
 
 // ------------------------------------------------------------------ 3. streams, transcripts, audio
 check('right bar shows three streams with transcripts', (await count('.radio .stream')) === 3 && (await count('.radio .line')) >= 6 && /cleared to land/i.test(await text('.radio')), `${await count('.radio .line')} lines`);

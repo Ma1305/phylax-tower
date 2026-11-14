@@ -1,4 +1,4 @@
-"""Hold Short visualizer API: read-only /viz/* routes over the tower's MongoDB records.
+"""Phylax Tower visualizer API: read-only /viz/* routes over the tower's MongoDB records.
 
 Run from this directory:  uvicorn app:app --port 8100
 """
@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
         await client.close()
 
 
-app = FastAPI(title="Hold Short visualizer API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Phylax Tower visualizer API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.cors_origins(),

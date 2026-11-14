@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Hold Short visualizer API (read-only over the tower's MongoDB records).
+# Phylax Tower visualizer API (read-only over the tower's MongoDB records).
 #   docker build -f deploy/viz-api.Dockerfile -t holdshort-viz-api .
 FROM python:3.12-slim
 

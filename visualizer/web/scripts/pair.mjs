@@ -54,7 +54,7 @@ check('stop alert has the exact call, rule and target', stopText.includes('TRUCK
 check('stop alert has no Approve / Reject, only Lift stop', (await stop.getByRole('button').allInnerTexts()).join('|') === 'Lift stop');
 const syn = page.locator('.line.synthetic', { hasText: 'TRUCK1, hold position' });
 const synText = (await syn.innerText()).replace(/\s+/g, ' ');
-check("Hold Short's own outbound call is marked in its stream", /HOLD SHORT · OUTBOUND/.test(synText) && /STOP · autonomous · in effect/.test(synText), synText.slice(0, 90));
+check("Phylax's own outbound call is marked in its stream", /PHYLAX · OUTBOUND/.test(synText) && /STOP · autonomous · in effect/.test(synText), synText.slice(0, 90));
 check('pending holds only the proposal', (await count(page, '.requests .req')) === 1 && (await page.locator('.requests .req').innerText()).includes('PROPOSED INSTRUCTION'));
 await shot(page, '01-live');
 

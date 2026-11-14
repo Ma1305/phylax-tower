@@ -1,4 +1,4 @@
-# Hold Short visualizer API
+# Phylax Tower visualizer API
 
 Read-only API for the visualizer (`/viz/*` in `docs/v2/CONTRACTS.md`). It is a separate system
 from the tower: its own `pyproject.toml`, no imports from `holdshort/`, and it never writes to

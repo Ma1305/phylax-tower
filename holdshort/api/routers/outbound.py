@@ -1,4 +1,4 @@
-"""GET /ingest/outbound: what Hold Short has told traffic (docs/v2/SIMULATOR_CONTRACT.md)."""
+"""GET /ingest/outbound: what Phylax Tower has told traffic (docs/v2/SIMULATOR_CONTRACT.md)."""
 
 from __future__ import annotations
 

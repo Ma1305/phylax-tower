@@ -1,5 +1,5 @@
 {
-  "_comment": "Seeded airport for Hold Short v2. A schematic of LaGuardia: positions are approximate. GeoJSON order is [lon, lat]. The foundation task builds each lane's `area` polygon from centerline + width_m (aprons give `area` directly).",
+  "_comment": "Seeded airport for Phylax Tower v2. A schematic of LaGuardia: positions are approximate. GeoJSON order is [lon, lat]. The foundation task builds each lane's `area` polygon from centerline + width_m (aprons give `area` directly).",
   "tower": {
     "_id": "LGA",
     "name": "LaGuardia Tower",

@@ -8,7 +8,7 @@ import { Timeline } from './components/Timeline';
 import { lerp, lerpAngle } from './geo';
 import { createSource, VIZ_API } from './source';
 import type { Clip, Decision, LiveMsg, Mark, ObjectDoc, Snapshot, Tracks, Transmission, World } from './types';
-import { activeStops, ago, hhmmss } from './util';
+import { activeStops, ago, hhmmss, stationName } from './util';
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const byId = <T extends { _id: string }>(list: T[], doc: T) => [...list.filter((x) => x._id !== doc._id), doc];
@@ -131,7 +131,7 @@ export default function App() {
     audioRef.current?.pause();
     setNowPlaying(null);
   }, []);
-  const txLabel = (t: Transmission) => `${hhmmss(t.t)} ${t.from} → ${t.to}`;
+  const txLabel = (t: Transmission) => `${hhmmss(t.t)} ${stationName(t.from)} → ${stationName(t.to)}`;
 
   const modeRef = useRef(mode);
   const soloRef = useRef(solo);
@@ -331,7 +331,7 @@ export default function App() {
   if (!world) {
     return (
       <div className="boot">
-        <h1>HOLD SHORT</h1>
+        <h1>PHYLAX TOWER</h1>
         {loadError ? (
           <>
             <p className="warn-text">The visualizer API at {VIZ_API} is not answering.</p>
@@ -358,7 +358,7 @@ export default function App() {
             <i />
             <i />
           </span>
-          <b>HOLD SHORT</b>
+          <b>PHYLAX TOWER</b>
           <span className="muted">
             {world.tower.name} · {world.tower.icao}
           </span>

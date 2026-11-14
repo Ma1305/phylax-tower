@@ -1,4 +1,4 @@
-"""Hold Short v2 data contracts: one Pydantic model per collection in docs/v2/CONTRACTS.md.
+"""Phylax Tower v2 data contracts: one Pydantic model per collection in docs/v2/CONTRACTS.md.
 
 Rules:
 - Callsigns are uppercase with no spaces (AC8646, TRUCK1); stations TOWER / GROUND / OPS.

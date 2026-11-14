@@ -1,4 +1,6 @@
-# Hold Short v2: build plan
+# Phylax Tower v2: build plan
+
+Phylax Tower was called Hold Short during the build; identifiers keep the old name.
 
 Read this first, then `CONTRACTS.md` (data shapes and APIs). `SIMULATOR_CONTRACT.md` is the
 only source for the `/ingest/*` API. `world_lga.json` is the seeded airport.
@@ -111,7 +113,7 @@ advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound 
 7. **History for time travel.** `positions` (time-series collection) keeps every position.
    `state_events` (insert-only) records every change to lane status, permissions, controllers
    and rule sets. Current-state collections are overwritten; history is rebuilt from these two.
-8. **Hold Short speaks only through the speaker service**, only for an executed `stop` or an
+8. **Phylax Tower speaks only through the speaker service**, only for an executed `stop` or an
    approved `propose_instruction`, on `decision.stream_id`, and it is logged as a synthetic
    outbound transmission.
 

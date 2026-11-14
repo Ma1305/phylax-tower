@@ -1,4 +1,4 @@
-# Local run of the three Hold Short services. Database: MongoDB Atlas only (MONGODB_URI in ../.env).
+# Local run of the three Phylax Tower services. Database: MongoDB Atlas only (MONGODB_URI in ../.env).
 #   sudo docker compose -f deploy/docker-compose.yml up --build
 name: holdshort
 

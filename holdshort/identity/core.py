@@ -161,7 +161,7 @@ class IdentityManager:
             "roles": [{"roleName": role, "databaseName": "admin"}],
             "scopes": [{"name": self.creds.cluster, "type": "CLUSTER"}],
             "deleteAfterDate": expires.isoformat().replace("+00:00", "Z"),
-            "description": f"Hold Short {agent} agent on {db} (generated)",
+            "description": f"Phylax Tower {agent} agent on {db} (generated)",
         })
         log.info("identity: user %s created for %s, expires %s", username, agent,
                  expires.isoformat())

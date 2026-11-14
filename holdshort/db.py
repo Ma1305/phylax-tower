@@ -14,5 +14,5 @@ def get_client(uri: str | None = None, **kwargs) -> MongoClient:
 
 
 def get_db(name: str | None = None, client: MongoClient | None = None) -> Database:
-    """Return the Hold Short database (MONGODB_DB, default "holdshort")."""
+    """Return the Phylax Tower database (MONGODB_DB, default "holdshort")."""
     return (client or get_client())[name or mongodb_db_name()]

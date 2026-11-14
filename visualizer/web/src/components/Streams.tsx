@@ -1,6 +1,6 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import type { Decision, Stream, Transmission, World } from '../types';
-import { ago, hhmmss } from '../util';
+import { ago, hhmmss, stationName } from '../util';
 
 export interface NowPlaying {
   clipId: string;
@@ -119,7 +119,7 @@ function StreamCard({ s, p, owner }: { s: Stream; p: Props; owner: string }) {
           return (
             <div key={t._id} data-clip={t.clip_id ?? ''} className={`line ${t.synthetic ? 'synthetic' : ''} ${t.verified ? '' : 'unverified'} ${playing ? 'playing' : ''}`}>
               {hasAudio ? (
-                <button className="play" onClick={() => p.onPlay(t)} aria-label={`Play ${t.from} to ${t.to}`} title="Play this clip">
+                <button className="play" onClick={() => p.onPlay(t)} aria-label={`Play ${stationName(t.from)} to ${stationName(t.to)}`} title="Play this clip">
                   {playing ? '♪' : '▶'}
                 </button>
               ) : (
@@ -131,9 +131,9 @@ function StreamCard({ s, p, owner }: { s: Stream; p: Props; owner: string }) {
                 <div className="line-head">
                   <span className="mono muted">{hhmmss(t.t)}</span>
                   <span className="mono who">
-                    {t.from} <span className="arrow">→</span> {t.to}
+                    {stationName(t.from)} <span className="arrow">→</span> {stationName(t.to)}
                   </span>
-                  {t.synthetic && <span className="badge syn" title="Spoken by Hold Short itself (synthetic voice), not by a person">◆ HOLD SHORT · OUTBOUND</span>}
+                  {t.synthetic && <span className="badge syn" title="Spoken by Phylax itself (synthetic voice), not by a person">◆ PHYLAX · OUTBOUND</span>}
                   {src && (
                     <span className={`badge ${src.stop ? 'syn-stop' : 'syn-ok'}`} title={`decision ${src.d.rule}`}>
                       {src.stop ? '■ STOP' : 'INSTRUCTION'} · {src.d.approved_by ? `approved by ${p.world.controllers.find((c) => c._id === src.d.approved_by)?.name ?? src.d.approved_by}` : 'autonomous'}

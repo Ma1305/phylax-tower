@@ -1,4 +1,4 @@
-# Hold Short v2: simulator contract (the `/ingest/*` API)
+# Phylax Tower v2: simulator contract (the `/ingest/*` API)
 
 For the session building the simulator. This file is the only definition of how data enters
 the tower. The tower implements it; the simulator calls it. Read `PLAN.md` for the big picture
@@ -94,7 +94,7 @@ Mark the start and end of a scenario so it shows on the visualizer's timeline:
 clear, working memory). The permanent log is never deleted. Call it before a scenario.
 
 ### `GET /ingest/outbound?tower_id=LGA&since=ISO`
-What Hold Short has told traffic, so simulated traffic can obey. Poll about once a second.
+What Phylax Tower has told traffic, so simulated traffic can obey. Poll about once a second.
 ```json
 {"now": "2026-11-14T19:06:02Z",
  "calls": [
