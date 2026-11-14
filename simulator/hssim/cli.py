@@ -97,8 +97,32 @@ async def _world(client: TowerClient) -> World:
 
 
 def _opts(args: argparse.Namespace) -> dict[str, Any]:
-    return {"lead_s": args.lead_s, "intruder": args.intruder, "cycles": args.cycles,
-            "loop": args.loop, "short": args.short, "resume_wait_s": args.resume_wait_s}
+    opts = {"lead_s": args.lead_s, "intruder": args.intruder, "cycles": args.cycles,
+            "loop": args.loop, "short": args.short, "resume_wait_s": args.resume_wait_s,
+            "crew_reaction_s": args.crew_reaction_s}
+    if getattr(args, "real_audio", None):
+        opts["real_audio"] = Path(args.real_audio).expanduser()
+        opts["real_audio_offset"] = real_audio_offset(args)
+    return opts
+
+
+def real_audio_offset(args: argparse.Namespace) -> float:
+    """Where in the recording the landing clearance (23:35:07 local, 03:35:07 UTC) is."""
+    from hssim.realaudio import parse_clock, start_seconds_from_name
+    from hssim.scenarios.laguardia import T0_UTC_S, T_CLEARANCE
+
+    if args.real_audio_clearance_at:
+        offset = parse_clock(args.real_audio_clearance_at) - T_CLEARANCE
+    else:
+        start = (parse_clock(args.real_audio_start) if args.real_audio_start
+                 else start_seconds_from_name(Path(args.real_audio)))
+        if start is None:
+            raise SystemExit(
+                "Cannot tell when the recording starts. Pass --real-audio-start HH:MM:SS (the "
+                "UTC time the file begins) or --real-audio-clearance-at MM:SS (where in the "
+                "file the controller says 'Truck 1 and company, cross runway 4').")
+        offset = T0_UTC_S - start
+    return offset + args.real_audio_shift
 
 
 async def collect_lines(name: str, opts: dict[str, Any]) -> list[tuple[Any, ...]]:
@@ -113,7 +137,8 @@ async def collect_lines(name: str, opts: dict[str, Any]) -> list[tuple[Any, ...]
         quiet = logging.getLogger("hssim").level
         logging.getLogger("hssim").setLevel(logging.ERROR)
         try:
-            await sim.run(lambda s: scenario.run(s, {**opts, "loop": False, "cycles": 1}),
+            await sim.run(lambda s: scenario.run(s, {**opts, "loop": False, "cycles": 1,
+                                                     "real_audio": None}),
                           scenario=name, kind=scenario.kind, announce=False)
         finally:
             logging.getLogger("hssim").setLevel(quiet)
@@ -260,6 +285,19 @@ def _common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--loop", action="store_true", help="normal: run until interrupted")
     p.add_argument("--short", action="store_true",
                    help="end once the runway part is over (skip the taxi to the stand)")
+    p.add_argument("--crew-reaction-s", type=float, default=2.0,
+                   help="laguardia: seconds between Truck 1 hearing a stop addressed to it "
+                        "and braking")
+    p.add_argument("--real-audio", metavar="FILE",
+                   help="laguardia: play this recording of the tower frequency instead of "
+                        "generated speech (the file stays outside the repository)")
+    p.add_argument("--real-audio-start", metavar="HH:MM:SS",
+                   help="UTC time the recording begins (read from a name like ...-0330Z.mp3 "
+                        "when omitted)")
+    p.add_argument("--real-audio-clearance-at", metavar="MM:SS",
+                   help="instead: where in the recording the crossing clearance is spoken")
+    p.add_argument("--real-audio-shift", type=float, default=0.0, metavar="S",
+                   help="nudge the recording later (+) or earlier (-) by S seconds")
     p.add_argument("--resume-wait-s", type=float, default=45.0,
                    help="crossing: how long the held truck waits for an approved instruction "
                         "to cross")

@@ -38,6 +38,7 @@ class Said:
     t_start: datetime
     duration_s: float
     radio: str | None = None
+    clock_s: float = 0.0     # simulated time it started at
 
 
 @dataclass
@@ -68,6 +69,8 @@ class Sim:
         self.clock = clock or (lambda: datetime.now(UTC))
         self.actors: dict[str, Actor] = {}
         self.sim_t = 0.0
+        self.clock_s = 0.0          # simulated seconds, advanced every sub-step
+        self.tick_hooks: list[Callable[[float], None]] = []   # called with dt each sub-step
         self.stats: Counter[str] = Counter()
         self.said: list[Said] = []
         self.outbound_calls: list[dict[str, Any]] = []
@@ -145,12 +148,12 @@ class Sim:
         duration = clip.duration_s if clip else phrases.estimate_duration_s(text)
         lock = self._stream_locks.setdefault(stream_id, asyncio.Lock())
         async with lock:
-            t_start = self.utcnow()
+            t_start, clock = self.utcnow(), self.clock_s
             log.info("%-8s %-7s %s", stream_id, speaker, text)
             await asyncio.sleep(duration / self.speed)
             self._post_utterance(stream_id, speaker, text, t_start, duration, clip)
             await asyncio.sleep(gap_s / self.speed)
-        said = Said(stream_id, speaker, text, t_start, duration, radio)
+        said = Said(stream_id, speaker, text, t_start, duration, radio, clock)
         self.said.append(said)
         return said
 
@@ -177,12 +180,12 @@ class Sim:
             delay_s + phrases.estimate_duration_s(second[1]))
         lock = self._stream_locks.setdefault(stream_id, asyncio.Lock())
         async with lock:
-            t_start = self.utcnow()
+            t_start, clock = self.utcnow(), self.clock_s
             log.info("%-8s %-7s %s", stream_id, "BLOCKED", text)
             await asyncio.sleep(duration / self.speed)
             self._post_utterance(stream_id, None, text, t_start, duration, clip)
             await asyncio.sleep(0.7 / self.speed)
-        said = Said(stream_id, "BLOCKED", text, t_start, duration)
+        said = Said(stream_id, "BLOCKED", text, t_start, duration, None, clock)
         self.said.append(said)
         return said
 
@@ -246,8 +249,12 @@ class Sim:
         while self._running:
             steps = max(1, round(self.tick_s / SUBSTEP_S))
             for _ in range(steps):
+                dt = self.tick_s / steps
                 for actor in list(self.actors.values()):
-                    actor.step(self.tick_s / steps)
+                    actor.step(dt)
+                self.clock_s += dt
+                for hook in list(self.tick_hooks):
+                    hook(dt)
             self.sim_t += self.tick_s
             self._report_positions()
             next_at += interval
