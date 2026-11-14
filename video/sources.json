@@ -1,0 +1,59 @@
+{
+  "_comment": "What scripts/prepare.mjs pulls from the repository. Paths are relative to the repo root; the first existing file wins. Edit this file, not the components, when production moves things. Status per item: 'code' = found in a code file, 'docs' = only in the v2 spec so far, 'missing' = rendered as a labelled placeholder.",
+  "world": {
+    "files": ["holdshort/world/lga.json", "docs/v2/world_lga.json"],
+    "runway_designator": "04"
+  },
+  "collections": {
+    "wanted": ["transmissions", "context", "intents_safety", "decisions", "state_events", "security_events"],
+    "code_files": ["scripts/setup_atlas.py", "holdshort/contracts.py"],
+    "doc_files": ["docs/v2/CONTRACTS.md"]
+  },
+  "identifiers": {
+    "rule_id": {"name": "no_crossing_during_active_landing", "code_files": ["holdshort/safety/engine.py", "scripts/setup_atlas.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "action_stop": {"name": "stop", "code_files": ["holdshort/contracts.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "action_propose": {"name": "propose_instruction", "code_files": ["holdshort/contracts.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "action_forbidden": {"name": "clear", "code_files": ["holdshort/safety/engine.py", "scripts/setup_atlas.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "outcome_executed": {"name": "executed", "code_files": ["holdshort/contracts.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "outcome_rejected": {"name": "rejected", "code_files": ["holdshort/contracts.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "reason_autonomous": {"name": "tier_autonomous", "code_files": ["holdshort/gate/core.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "reason_disabled": {"name": "agent_disabled", "code_files": ["holdshort/gate/core.py"], "doc_files": ["docs/v2/CONTRACTS.md"]},
+    "validator_fn": {"name": "intents_schema", "code_files": ["scripts/setup_atlas.py"], "doc_files": []},
+    "scoped_db": {"name": "ScopedDb", "code_files": ["holdshort/access.py"], "doc_files": ["docs/v2/PLAN.md"]},
+    "gate_fn": {"name": "_insert_decision", "code_files": ["holdshort/gate/core.py"], "doc_files": []},
+    "permissions": {"name": "permissions", "code_files": ["scripts/setup_atlas.py"], "doc_files": ["docs/v2/CONTRACTS.md"]}
+  },
+  "models": {
+    "transmission": {
+      "files": ["holdshort/contracts.py"], "class": "Transmission", "collection": "transmissions",
+      "max_fields": 11,
+      "sample": {"t": "2026-03-22T23:37:18Z", "stream_id": "$stream_id", "from": "TOWER", "to": "TRUCK1", "kind": "clearance", "instruction": "cross", "runway": "04", "at": "D", "lane_id": "$lane_id", "transcript": "$card2", "confidence": 0.95, "verified": true}
+    },
+    "intent": {
+      "files": ["holdshort/contracts.py"], "class": "Intent", "collection": "intents_safety",
+      "max_fields": 7,
+      "sample": {"agent": "safety", "action": "stop", "severity": "critical", "target": ["TRUCK1", "AC8646"], "lane_id": "$lane_id", "runway": "04", "reason": "$rule_id", "conflicts_with": "AC8646 cleared to land"}
+    },
+    "decision": {
+      "files": ["holdshort/contracts.py"], "class": "Decision", "collection": "decisions",
+      "max_fields": 6,
+      "sample": {"agent": "safety", "intent_action": "stop", "outcome": "executed", "rule": "tier_autonomous", "lane_id": "$lane_id", "controller_id": "$controller_id"}
+    },
+    "security_event": {
+      "files": ["holdshort/contracts.py"], "class": "SecurityEvent", "collection": "security_events",
+      "max_fields": 5,
+      "sample": {"agent": "procedures", "kind": "validator_rejected", "attempted": "intents_procedures action=clear", "error_code": 121}
+    },
+    "state_event": {
+      "files": ["holdshort/contracts.py"], "class": "StateEvent", "collection": "state_events",
+      "max_fields": 5,
+      "sample": {"kind": "permission", "ref": "procedures", "doc": {"enabled": false}, "by": "$controller_id"}
+    }
+  },
+  "rules_file": {
+    "files": ["holdshort/safety/engine.py"],
+    "highlight": ["RULE_NO_CROSSING in enabled", "no_crossing_during_active_landing"],
+    "lines_before": 26,
+    "lines_after": 10
+  }
+}

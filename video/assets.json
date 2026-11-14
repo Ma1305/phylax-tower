@@ -1,0 +1,18 @@
+[
+  {"file": "vo.wav", "kind": "audio", "scene": "all", "optional": false,
+   "contains": "Full voiceover, 0:00 to the end. If absent the video renders silent on the script.json timings."},
+  {"file": "rec_safety_off.mp4", "kind": "video", "scene": "incident", "optional": false,
+   "contains": "Screen recording: the visualizer replaying the reconstruction with Safety OFF. Both clearances are issued and nothing stops them. 10 s, 16:9."},
+  {"file": "rec_safety_on.mp4", "kind": "video", "scene": "catch", "optional": false,
+   "contains": "Screen recording: the same calls with Safety ON. The stop appears and is routed to the owning controller. 16 s, 16:9."},
+  {"file": "stop_spoken.wav", "kind": "audio", "scene": "catch", "optional": false,
+   "contains": "The synthetic stop call Hold Short speaks on the radio, about 1.5 s."},
+  {"file": "rec_blocked_write.mp4", "kind": "video", "scene": "audit", "optional": false,
+   "contains": "Screen recording: an agent attempts a forbidden write and the security_events row that results. 4 s, 16:9."},
+  {"file": "rec_switch_off.mp4", "kind": "video", "scene": "audit", "optional": false,
+   "contains": "Screen recording: a controller switches an agent off and its next intent is refused. 5 s, 16:9."},
+  {"file": "rec_time_travel.mp4", "kind": "video", "scene": "audit", "optional": false,
+   "contains": "Screen recording: the visualizer timeline scrubbed back through the event (time travel). 5 s, 16:9."},
+  {"file": "team.png", "kind": "image", "scene": "team", "optional": true,
+   "contains": "Team photo or four avatars (real photos only, no generated faces). Optional."}
+]
