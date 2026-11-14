@@ -444,3 +444,56 @@ select { height: 28px; background: var(--bg); border: 1px solid var(--line); bor
 .obj-edge path { fill: var(--text); }
 .obj-edge text { fill: var(--text); font-size: 12px; font-family: var(--mono); font-weight: 600; paint-order: stroke; stroke: var(--bg); stroke-width: 3px; }
 .obj-edge.hot path, .obj-edge.hot text { fill: var(--red); }
+
+/* ---------- pass 5: the map ---------- */
+.map text { font-family: var(--sans); }
+.rwy-num { fill: #fff; font-size: 20px; font-weight: 700; paint-order: stroke; stroke: #1d323d; stroke-width: 4px; font-variant-numeric: tabular-nums; }
+.water-label { fill: #6f93a6; font-size: 12px; font-style: italic; font-weight: 500; letter-spacing: 0.3em; stroke: none; text-transform: none; }
+.slab-label { fill: #c3ccd4; font-size: 11px; font-weight: 600; letter-spacing: 0.12em; }
+.slab-label.dimmer { fill: #8693a0; }
+.twy-badge { fill: #0c0f12; stroke: #e8bd2c; stroke-width: 1.25; }
+.twy-letter { fill: #f1c832; font-size: 13px; font-weight: 700; stroke: none; }
+.state-tag { fill: #141a20; stroke-width: 1; }
+.state-text { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; stroke: none; }
+.rwy-flag rect { stroke-width: 1; }
+.final-line { stroke: #dfe5ea; stroke-width: 1; stroke-dasharray: 6 6; opacity: 0.55; }
+.final-arc { stroke: #4a6a7a; }
+.final-label { fill: #9fb6c2; }
+.conflict-mark line { stroke: #f0575c; stroke-width: 2; stroke-dasharray: 8 5; }
+.conflict-mark circle { fill: none; stroke: #f0575c; stroke-width: 2.5; }
+.glyph.plane { fill: #fff; stroke: #0c0f12; stroke-width: 1.2; paint-order: stroke; }
+.track { stroke: #fff; stroke-width: 1.25; }
+.glyph.vehicle { fill: #ffd23f; stroke: #0c0f12; stroke-width: 1; }
+.obj-vehicle.hot .glyph.vehicle { stroke: #0c0f12; stroke-width: 1; }
+.glyph.person { fill: #fff; stroke: #0c0f12; stroke-width: 1; }
+.glyph.unknown { fill: #0c0f12; stroke: #e3b341; stroke-width: 1.5; }
+.obj-ring { fill: none; stroke: #f0575c; stroke-width: 1.5; stroke-dasharray: 4 3; }
+.leader { stroke: #aab6c1; stroke-width: 1; }
+.obj.hot .leader { stroke: #f0575c; }
+.obj-label { stroke: none; paint-order: normal; }
+.tag-box { fill: rgba(16, 21, 26, 0.92); stroke: #5d6b78; stroke-width: 1; }
+.obj.hot .tag-box { stroke: #f0575c; stroke-width: 1.5; }
+.obj-name { fill: #fff; font-family: var(--mono) !important; font-size: 12px; font-weight: 700; stroke: none; }
+.obj.hot .obj-name { fill: #fff; }
+.obj-data { fill: #aab6c1; font-family: var(--mono) !important; font-size: 12px; font-weight: 400; stroke: none; }
+.obj.hot .obj-data { fill: #ff9a9d; }
+.north circle { fill: rgba(20, 26, 32, 0.8); stroke: #5d6b78; stroke-width: 1; }
+.north path { fill: #fff; }
+.north text { fill: #dfe5ea; font-size: 11px; font-weight: 600; }
+.scalebar path { fill: none; stroke: #dfe5ea; stroke-width: 1.25; }
+.scalebar text { fill: #dfe5ea; font-size: 11px; font-weight: 600; }
+.obj-edge text { stroke: #1d323d; }
+.inbound-chip { position: absolute; top: 48px; right: 12px; height: 28px; display: inline-flex; align-items: center; gap: 4px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); font-size: 12px; color: var(--text-2); white-space: nowrap; }
+.inbound-chip b { color: var(--text); font-weight: 600; }
+.inbound-chip:hover { border-color: #3a4656; }
+.map-tools .seg, .map-tools .menu-btn { background: var(--panel); }
+.situation { background: var(--panel); }
+.map-filter { background: var(--panel); }
+.no-tags .obj-label, .no-tags .leader { display: none; }
+.k-reserved { outline: 1.5px dashed #e3b341; background: #12161a; }
+.k-occupied { outline: 1.5px dotted #66b0ea; background: #12161a; }
+.k-conflict { outline: 1.5px solid #f0575c; background: repeating-linear-gradient(45deg, #f0575c 0 2px, #12161a 2px 5px); }
+.k-closed { outline: 1px solid #9aa4ad; background: repeating-linear-gradient(45deg, #9aa4ad 0 1px, #12161a 1px 4px); }
+.k-hold { background: #f1c832; height: 2px; }
+.k-veh { background: #ffd23f; width: 10px; height: 6px; }
+.k-person { background: #fff; }
