@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AirfieldMap } from "./AirfieldMap";
 import type { Feed } from "./feed";
-import { LiveFeed, MockFeed } from "./feed";
+import { LiveFeed, MockFeed, normDecision } from "./feed";
 import { buildTimeline, isStop, LIVE_LANDING_TO_D_S, scene as buildScene } from "./sim";
 import { initialStore, reducer } from "./store";
+import { AuditBox, ConfusableBadges, playVoiceAlert, SimilarIncidents, useConfusables } from "./tier2";
 import type { RogueNote } from "./store";
 import type { AtlasEvent, Decision, FeedMsg, Transmission } from "./types";
 import { AGENTS, fmtTime, idOf, toMs } from "./types";
@@ -31,7 +32,11 @@ export default function App() {
 
   useEffect(() => {
     const h = {
-      onMsg: (msg: FeedMsg) => dispatch({ kind: "msg", msg }),
+      onMsg: (msg: FeedMsg) => {
+        dispatch({ kind: "msg", msg });
+        // live STOPs only (not the snapshot): play the voice alert if the service spoke it
+        if (!MOCK && msg.type === "decision") playVoiceAlert(normDecision(msg.doc));
+      },
       onClock: (t: number | null, running: boolean) => dispatch({ kind: "clock", t, running }),
       onStatus: setStatus,
       onReset: () => dispatch({ kind: "reset" }),
@@ -133,6 +138,7 @@ export default function App() {
           <RadioPanel tx={store.transmissions} decisions={store.decisions} />
           <AlertsPanel decisions={store.decisions} rogue={store.rogue} runway04={runway04}
             onRevoke={(d) => run("revoke", () => feed().revoke(d))} />
+          {!MOCK && <AuditBox />}
           <AtlasStrip events={store.events} />
         </aside>
       </main>
@@ -172,6 +178,7 @@ function isUnclear(x: Transmission) {
 }
 
 function RadioPanel({ tx, decisions }: { tx: Transmission[]; decisions: Decision[] }) {
+  const conf = useConfusables(tx, !MOCK);
   const stops = decisions.filter((d) => d.outcome === "executed" && isStop(d));
   type Item = { kind: "tx"; t: number; x: Transmission } | { kind: "stop"; t: number; d: Decision };
   const items: Item[] = [
@@ -214,6 +221,7 @@ function RadioPanel({ tx, decisions }: { tx: Transmission[]; decisions: Decision
                   {it.x.readback === "matched" && <span className="badge badge-green">✓ readback matched</span>}
                   {it.x.readback && /mismatch|missing/.test(it.x.readback) && <span className="badge badge-red">✕ readback {it.x.readback}</span>}
                   {it.x.readback === "pending" && <span className="badge badge-dim">readback pending</span>}
+                  <ConfusableBadges x={it.x} conf={conf} />
                 </div>
               </div>
             </div>
@@ -260,6 +268,7 @@ function AlertsPanel({ decisions, rogue, runway04, onRevoke }: {
                   <div className="stop-title">⛔ STOP</div>
                   <div className="stop-sub">Runway {d.runway ?? "?"} — {d.conflicts_with ?? "conflict"}</div>
                   <div className="small">Alert sent to {(d.notified ?? []).join(" + ")} by name. Lights held red.</div>
+                  {!MOCK && <SimilarIncidents d={d} />}
                 </>
               ) : d.outcome === "revoked" ? (
                 <div className="card-title">{isStop(d) ? "✓ Stop lifted" : d.action === "propose_instruction" ? `✕ Rejected by controller: ${d.text ?? "proposal"}` : `✓ Revoked: ${d.action}`} · {d.rule ?? "revoked"}</div>

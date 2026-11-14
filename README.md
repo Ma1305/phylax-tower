@@ -52,9 +52,11 @@ uv run uvicorn holdshort.api.app:app --port 8000   # CORS open for localhost ori
 - `POST /scenario/start` `{safety_enabled, mode: "text"|"audio"}`, `POST /scenario/reset`,
   `POST /rogue`, `GET /audit?q=` call `holdshort.scenario.start(db, *, safety_enabled, mode)`,
   `holdshort.scenario.reset(db)`, `holdshort.agents.rogue(db)`, `holdshort.audit.answer(db, q)`
-  (`HOOKS` in `holdshort/api/app.py`). All exist except `holdshort.audit` (audit task),
-  so `/audit` still returns 501. `/scenario/start` returns at once and plays in a thread of
+  (`HOOKS` in `holdshort/api/app.py`); a missing hook answers 501. `/scenario/start` returns at once and plays in a thread of
   the API (`HOLDSHORT_SCENARIO_SPEED`, default 1); `GET /scenario/status` reports the run.
+- Tier 2: `GET /incidents/similar?q=&k=3`, `GET /callsigns/confusable?callsign=AC8646&callsign=TRUCK1`
+  (holdshort.search; 503 until `scripts/setup_search.py` has run), `GET /voice/alerts/{decision_id}`
+  (mp3 from the voice alert service; 404 when voice is off). `GET /health` reports `voice_enabled`.
 - Decision events and snapshot decisions carry a read-only `intent` view
   (`action, target, runway, reason, conflicts_with, proposal_text`) for the UI.
 
@@ -65,6 +67,15 @@ uv run uvicorn holdshort.api.app:app --port 8000   # CORS open for localhost ori
 `scripts/demo_api_check.sh` checks the whole stack headlessly through the API.
 - `GET /health`. The gate runs as its own process; `HOLDSHORT_API_RUN_GATE=1` runs it
   inside the API instead.
+
+## Voice alert service
+
+`uv run python -m holdshort.voice_alert` watches `decisions` for executed STOPs and speaks
+them: "Truck one, STOP. Hold short runway zero four. Air Canada eight six four six, traffic
+Truck one holding short runway zero four." With `VOICE_ENABLED=true` + `ELEVENLABS_API_KEY`
+it writes `logs/voice_alerts/<decision_id>.mp3` (ElevenLabs TTS; voice `ELEVENLABS_VOICE_ALERT`,
+default the tower voice) which the web UI plays; `VOICE_ALERT_PLAY=1` also plays it on the
+host. Voice off: it only logs the phrase. It never writes to MongoDB. `scripts/demo.sh` starts it.
 
 ## Listener agent
 

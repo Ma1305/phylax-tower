@@ -9,6 +9,12 @@
   actions, done through holdshort.gate (every change is logged / insert-only).
 - ``POST /scenario/start``, ``POST /scenario/reset``, ``POST /rogue``, ``GET /audit``: call
   optional hooks provided by other tasks (see HOOKS); 501 until they exist.
+- ``GET /incidents/similar?q=&k=3`` (holdshort.search.incidents.similar),
+  ``GET /callsigns/confusable?callsign=AC8646&callsign=TRUCK1``
+  (holdshort.search.callsigns.similar_on_frequency): tier-2 search, 503 if Atlas Search
+  is not set up (scripts/setup_search.py).
+- ``GET /voice/alerts/{decision_id}``: the mp3 holdshort.voice_alert spoke for an
+  executed STOP (404 until it exists, e.g. VOICE_ENABLED false).
 
 The action gate normally runs as its own process (``python -m holdshort.gate``). Set
 ``HOLDSHORT_API_RUN_GATE=1`` to run it inside the API process instead (one gate only).
@@ -21,19 +27,23 @@ import contextlib
 import importlib
 import logging
 import os
+import re
 import threading
 from collections.abc import Callable
 from typing import Any, Literal
 
 from bson import ObjectId
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from pymongo.database import Database
+from pymongo.errors import PyMongoError
 from starlette.concurrency import run_in_threadpool
 
 from holdshort import gate
 from holdshort.api.feed import ChangeFeed, jsonable, snapshot
+from holdshort.listener.voice import voice_enabled
 
 log = logging.getLogger("holdshort.api")
 
@@ -192,6 +202,7 @@ def create_app(db: Database | None = None, *, run_gate: bool | None = None) -> F
             "db": db.name,
             "change_feed": bool(feed and feed.ready.is_set()),
             "gate_in_process": "gate" in state,
+            "voice_enabled": voice_enabled(),  # voice alert mp3s exist only when true
         }
 
     @app.post("/permissions/{agent}")
@@ -243,6 +254,51 @@ def create_app(db: Database | None = None, *, run_gate: bool | None = None) -> F
     @app.get("/audit")
     def audit(q: str = Query(min_length=1)) -> dict:
         return _call_hook(_db(), "audit", q)
+
+    @app.get("/incidents/similar")
+    def incidents_similar(q: str = Query(min_length=3), k: int = Query(3, ge=1, le=10)) -> dict:
+        from holdshort.search import incidents
+
+        try:
+            found = incidents.similar(q, k=k, db=_db())
+        except PyMongoError as e:
+            raise HTTPException(status_code=503, detail=f"incident search unavailable: "
+                                f"{type(e).__name__} (run scripts/setup_search.py)") from e
+        return {"incidents": [
+            {"id": i.id, "title": i.title, "airport": i.airport, "date": i.date,
+             "summary": i.summary, "score": round(i.score, 4), "method": i.method}
+            for i in found
+        ]}
+
+    @app.get("/callsigns/confusable")
+    def callsigns_confusable(callsign: list[str] = Query(min_length=1, max_length=20)) -> dict:
+        from holdshort.contracts import CALLSIGN_PATTERN
+        from holdshort.search import callsigns
+
+        out: dict[str, list[dict]] = {}
+        for cs in {c.strip().upper() for c in callsign if c.strip()}:
+            if not re.fullmatch(CALLSIGN_PATTERN, cs):
+                continue  # UNKNOWN, ATIS, ... are skipped, not errors
+            try:
+                found = callsigns.similar_on_frequency(cs, db=_db(), limit=3)
+            except PyMongoError as e:
+                raise HTTPException(status_code=503, detail=f"callsign search unavailable: "
+                                    f"{type(e).__name__} (run scripts/setup_search.py)") from e
+            out[cs] = [{"other": c.other, "reason": c.reason, "score": round(c.score, 4)}
+                       for c in found]
+        return {"confusable": out}
+
+    @app.get("/voice/alerts/{decision_id}")
+    def voice_alert(decision_id: str) -> FileResponse:
+        from holdshort.voice_alert import alert_path
+
+        try:
+            path = alert_path(decision_id)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="no voice alert for this decision")
+        return FileResponse(path, media_type="audio/mpeg")
 
     @app.websocket("/ws")
     async def ws(websocket: WebSocket) -> None:

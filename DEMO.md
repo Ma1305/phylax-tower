@@ -7,7 +7,7 @@ no-backend fallback, see "If something breaks".)
 
 ```bash
 cd ~/plane-management
-scripts/demo.sh            # Atlas setup, gate, safety/procedures/weather agents, API :8000, web :5173
+scripts/demo.sh            # Atlas setup (+ search setup in background), gate, agents, voice alert, API :8000, web :5173
 ```
 
 `scripts/demo.sh` returns once everything is up. It runs `scripts/setup_atlas.py`
@@ -107,9 +107,42 @@ straight from the `decisions` document:
 - `approved_by: — (autonomous STOP)`; on the approved crossing: `approved_by: controller_A`
 
 The Atlas strip at the bottom right is the live change stream (permissions, transmissions,
-decisions). The natural-language answer (`GET /audit?q=Why was TRUCK1 held?`) needs
-`holdshort.audit.answer` from the audit task; until that branch is merged the endpoint
-returns 501 and the cards above are the audit view.
+decisions).
+
+Then ask in words: the **Ask the audit agent** box (right column, above the Atlas strip)
+is pre-filled with "Why was TRUCK1 held?". Click **Ask** (`GET /audit?q=...`,
+`holdshort.audit.answer`). The answer lists the timeline the audit agent read from Atlas:
+transmissions, the safety intent, the gate decision with `rule`, `authorized_by` and
+`approved_by`, the permission changes. With `LLM_API_KEY` set a short narrative comes first;
+every `[n]` in it points at a timeline line (the agent rejects narratives that cite records
+that are not in the timeline). Without a key you get the timeline only. **hide** folds it away.
+
+## Tier-2 extras (what else is on screen)
+
+All of these are read-only GETs; if one fails it just disappears, the beats above never
+depend on them. None of them run in `?mock=1`.
+
+- **Similar past incidents** (STOP card, beat 2): three past runway incursions from the
+  `incidents` collection, `GET /incidents/similar` -> `holdshort.search.incidents.similar`
+  (Atlas Vector Search with automated Voyage embedding; the header says "Atlas Search" when
+  it fell back to the text index). Click a line to read its summary. Talking point: "the
+  agent knows this pattern; it has happened before."
+- **Confusable callsigns** (radio panel): amber `⚠ TRUCK1 sounds like TRUCK2 / TRUCK3` and
+  `⚠ AC8646 sounds like AC6846 / AC8464` badges on calls involving those callsigns, from
+  `GET /callsigns/confusable` -> `holdshort.search.callsigns.similar_on_frequency` (fuzzy
+  Atlas Search on the same frequency). Hover for the reason ("same digits in a different order").
+- **Voice alert**: `holdshort.voice_alert` (started by `scripts/demo.sh`, log
+  `logs/demo/voice_alert.log`) speaks every executed STOP. With `VOICE_ENABLED=true` and
+  `ELEVENLABS_API_KEY` in the `.env` it synthesises "Truck one, STOP. Hold short runway zero
+  four. Air Canada eight six four six, traffic Truck one holding short runway zero four." to
+  `logs/voice_alerts/<decision_id>.mp3`; the browser fetches it from
+  `GET /voice/alerts/{decision_id}` and plays it a second or two after the STOP card appears.
+  **Click anywhere on the page once before Play** (browsers block audio until the page has
+  had a click; Play itself counts). Voice off: `/health` says `voice_enabled: false`, the
+  log shows `would say: ...`, nothing plays. `VOICE_ALERT_PLAY=1` also plays it on the VM.
+- `scripts/demo.sh` also runs `scripts/setup_search.py` in the background
+  (`logs/demo/search_setup.log`, idempotent; `SKIP_SEARCH=1` skips it). On a fresh database
+  the text index is ready in about a minute, the vector index after its embeddings are built.
 
 ## Checks
 
@@ -125,6 +158,9 @@ stops what it started.
 
 - Page says `offline · retrying`: the API is down or the tunnel dropped. `curl localhost:8000/health`
   on the VM; `tail logs/demo/api.log`.
+- No similar incidents / confusable badges: `curl localhost:8000/callsigns/confusable?callsign=AC8646`.
+  A 503 means the search indexes are missing: `uv run python scripts/setup_search.py`.
+- No voice: `curl localhost:8000/health` (`voice_enabled`), `tail logs/demo/voice_alert.log`.
 - No STOP with Safety ON: is the gate running? `tail logs/demo/gate.log logs/demo/safety.log`.
 - `a scenario run is already playing; reset first`: press **⟲ Reset**.
 - A switch was left off: `uv run python -m holdshort.gate set-permission procedures on controller_A`

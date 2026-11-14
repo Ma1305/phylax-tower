@@ -13,6 +13,9 @@
 # - The listener runs inside the scenario run (text mode): Play in the UI calls
 #   POST /scenario/start, which plays scenarios/laguardia/script.json in a thread of
 #   the API process. HOLDSHORT_SCENARIO_SPEED (default 1 = real time, ~80 s).
+# - Tier 2: scripts/setup_search.py (callsigns + incidents search indexes) runs in the
+#   background (SKIP_SEARCH=1 skips it); the voice alert service (holdshort.voice_alert)
+#   speaks executed STOPs with ElevenLabs when VOICE_ENABLED is true (text-only log otherwise).
 # - Logs: logs/demo/<name>.log. PIDs (process groups): logs/demo/pids.
 set -euo pipefail
 
@@ -80,13 +83,19 @@ if [ ! -d web/node_modules ]; then
     || fail "npm install" "$LOG_DIR/npm_install.log"
 fi
 
-echo "== starting gate + agents"
+if [ -z "${SKIP_SEARCH:-}" ]; then
+  echo "== Atlas Search setup in the background (logs/demo/search_setup.log)"
+  start_proc search_setup uv run python scripts/setup_search.py --timeout 300
+fi
+
+echo "== starting gate + agents + voice alert"
 start_proc gate uv run python -m holdshort.gate
 start_proc safety uv run python -m holdshort.agents.safety_agent
 start_proc procedures uv run python -m holdshort.agents.procedures_agent
 start_proc weather uv run python -m holdshort.agents.weather_agent
+start_proc voice_alert uv run python -m holdshort.voice_alert
 wait_log gate "gate starting" 30
-for a in safety procedures weather; do wait_log "$a" "READY $a" 30; done
+for a in safety procedures weather voice_alert; do wait_log "$a" "READY $a" 30; done
 
 echo "== starting API on :$API_PORT"
 start_proc api uv run uvicorn holdshort.api.app:app --host 127.0.0.1 --port "$API_PORT"
