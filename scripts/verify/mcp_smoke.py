@@ -9,7 +9,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from _env import URI_HELP, ROOT, require
+from _env import URI_HELP, ROOT, redact, require
 
 require("MONGODB_URI", URI_HELP)
 DB = __import__("os").environ.get("MONGODB_DB", "holdshort")
@@ -54,14 +54,14 @@ try:
     # The server registers MDB_MCP_CONNECTION_STRING as connection "preconfigured".
     conns = tool("list-connections")
     if '"preconfigured"' not in conns:
-        sys.exit(f"FAIL 2: MCP server has no preconfigured connection: {conns[:300]}")
+        sys.exit(f"FAIL 2: MCP server has no preconfigured connection: {redact(conns[:300])}")
     CID = "preconfigured"
     try:
         out = tool("list-databases", connectionId=CID)
         print("PASS 2: list-databases ->", out.split(":")[0])
     except Exception as e:
         ok = False
-        print("FAIL 2: list-databases:", e)
+        print("FAIL 2: list-databases:", redact(e))
 
     marker = str(uuid.uuid4())
     try:
@@ -74,7 +74,7 @@ try:
         print(f"PASS 3: insert/find/drop on {DB}.smoke_test")
     except Exception as e:
         ok = False
-        print("FAIL 3:", e)
+        print("FAIL 3:", redact(e))
 finally:
     proc.terminate()
     proc.wait(timeout=10)

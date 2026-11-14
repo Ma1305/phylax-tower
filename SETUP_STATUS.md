@@ -7,20 +7,20 @@ uv sync                      # installs pymongo, python-dotenv, anthropic, reque
 scripts/verify/run_all.sh    # any check that exits with code 2 is BLOCKED (a secret is missing)
 ```
 
-The scripts read `.env` from the repo root. Set `HOLDSHORT_ENV=/path/to/.env` to use a different file.
+The scripts read `$HOLDSHORT_ENV` if it is set. Otherwise they read `.env` at the repo root, and then `~/plane-management/.env`, so git worktrees use the shared file without making a copy. Error output has connection strings and keys redacted.
 
 | # | Check | Status | Script |
 |---|-------|--------|--------|
 | 1 | node >= 22.12, python >= 3.11 | PASS (node v26.13.1, python 3.12.3) | `scripts/verify/check_toolchain.sh` |
-| 2 | MCP: list databases | BLOCKED: no `MONGODB_URI` | `scripts/verify/mcp_smoke.py` |
-| 3 | MCP: insert/read/drop in `holdshort.smoke_test` | BLOCKED: no `MONGODB_URI` | `scripts/verify/mcp_smoke.py` |
-| 4 | pymongo change stream | BLOCKED: no `MONGODB_URI` | `scripts/verify/change_stream.py` |
-| 5 | `$jsonSchema` validator rejects a bad insert | BLOCKED: no `MONGODB_URI` | `scripts/verify/schema_validator.py` |
+| 2 | MCP: list databases | PASS on Atlas Sandbox Cluster0 (3 databases: admin, config, local) | `scripts/verify/mcp_smoke.py` |
+| 3 | MCP: insert/read/drop in `holdshort.smoke_test` | PASS on Atlas | `scripts/verify/mcp_smoke.py` |
+| 4 | pymongo change stream | PASS on Atlas (second client's insert seen) | `scripts/verify/change_stream.py` |
+| 5 | `$jsonSchema` validator rejects a bad insert | PASS on Atlas (code 121, Document failed validation) | `scripts/verify/schema_validator.py` |
 | 6 | One LLM call | BLOCKED: no `LLM_API_KEY` | `scripts/verify/llm_call.py` |
 | 7 | ElevenLabs TTS clip | ElevenLabs pending (no key yet) | `scripts/verify/elevenlabs_tts.py` |
 | 8 | No `.env` or MCP config tracked; repo is public | PASS | `scripts/verify/check_git.sh` |
 
-Checks 2 to 5 were run against a throwaway local MongoDB 8 replica set in rootless podman, and all four passed. This only shows the scripts work. It does not count as a pass for the Atlas Sandbox cluster.
+Checks 2 to 5 passed against the Atlas Sandbox cluster (Cluster0, MongoDB 9.0.7) on 2026-11-14. Every run cleans up after itself: afterwards `holdshort` has no collections and the cluster lists only admin, config and local. Checks 6 and 7 are waiting for keys.
 
 ## What humans must provide
 
