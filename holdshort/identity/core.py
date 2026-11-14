@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote_plus, urlsplit, urlunsplit
 
-from holdshort.identity.atlas import AtlasAdmin, AtlasError, Credentials, credentials
+from holdshort.identity.atlas import AtlasAdmin, AtlasError, Credentials, credentials, enabled
 
 log = logging.getLogger("holdshort.identity")
 
@@ -37,7 +37,7 @@ INFRA: dict[str, tuple[str, ...]] = {
     "permissions": ("FIND",),
 }
 
-PING_TIMEOUT_S = 90.0
+PING_TIMEOUT_S = 180.0  # measured: 3 s idle, 65-91 s when Atlas has queued changes
 ALPHABET = string.ascii_letters + string.digits
 
 
@@ -47,6 +47,14 @@ def role_name(db: str, agent: str) -> str:
 
 def user_prefix(db: str, agent: str) -> str:
     return f"hs-{db}-{agent}-"
+
+
+def wait_s() -> float:
+    """AGENT_IDENTITY_WAIT_S: how long an agent's startup waits for its user (default 20)."""
+    try:
+        return float(os.environ.get("AGENT_IDENTITY_WAIT_S", "") or 20)
+    except ValueError:
+        return 20.0
 
 
 def ttl_hours() -> float:
@@ -106,11 +114,26 @@ class Identity:
     username: str | None = None
     role: str | None = None
     expires_at: datetime | None = None
+    ready_s: float | None = None
+    note: str | None = None
 
     def public(self) -> dict[str, Any]:
         """The agent_state.identity document: never the password or the URI."""
-        return {"kind": self.kind, "username": self.username, "role": self.role,
-                "expires_at": self.expires_at}
+        out = {"kind": self.kind, "username": self.username, "role": self.role,
+               "expires_at": self.expires_at}
+        if self.ready_s is not None:
+            out["ready_s"] = self.ready_s
+        if self.note:
+            out["note"] = self.note
+        return out
+
+
+class NotReady(RuntimeError):
+    """The generated user did not authenticate within the wait; ``identity`` is attached."""
+
+    def __init__(self, identity: Identity):
+        super().__init__(f"{identity.username} not usable yet")
+        self.identity = identity
 
 
 def _default_ping(uri: str) -> None:
@@ -148,8 +171,14 @@ class IdentityManager:
                  len(body["actions"]))
         return result
 
-    def provision(self, agent: str, db: str, perm: dict, base_uri: str) -> Identity:
+    def provision(self, agent: str, db: str, perm: dict, base_uri: str,
+                  wait_s: float | None = None) -> Identity:
+        """Role (upsert) + one fresh user for this agent and database. Idempotent: earlier
+        ``hs-<db>-<agent>-*`` users are deleted first, so there is one user per agent per db.
+        Waits up to ``wait_s`` (default PING_TIMEOUT_S) for the user to authenticate; raises
+        NotReady (with the identity attached) when it does not."""
         self.put_role(db, agent, perm)
+        self.delete_users(agent, db)
         role = role_name(db, agent)
         username = user_prefix(db, agent) + secrets.token_hex(3)
         password = new_password()
@@ -165,21 +194,29 @@ class IdentityManager:
         })
         log.info("identity: user %s created for %s, expires %s", username, agent,
                  expires.isoformat())
-        uri = user_uri(base_uri, username, password)
-        deadline = time.monotonic() + PING_TIMEOUT_S
+        ident = Identity("generated", user_uri(base_uri, username, password), username, role,
+                         expires)
+        self.wait_usable(ident, PING_TIMEOUT_S if wait_s is None else wait_s)
+        return ident
+
+    def wait_usable(self, ident: Identity, wait_s: float) -> float:
+        """Ping as the user until it authenticates; returns the seconds it took."""
+        t0 = time.monotonic()
+        deadline = t0 + wait_s
         while True:
             try:
-                self.ping(uri)
-                break
+                self.ping(ident.uri)
+                ident.ready_s = round(time.monotonic() - t0, 1)
+                log.info("identity: %s usable after %.1fs", ident.username, ident.ready_s)
+                return ident.ready_s
             except Exception as e:  # noqa: BLE001  (Atlas applies users asynchronously)
                 if time.monotonic() >= deadline:
-                    log.warning("identity: %s not usable after %.0fs (%s)", username,
-                                PING_TIMEOUT_S, type(e).__name__)
-                    raise
-                self.sleep(3.0)
-        return Identity("generated", uri, username, role, expires)
+                    log.warning("identity: %s not usable after %.0fs (%s)", ident.username,
+                                wait_s, type(e).__name__)
+                    raise NotReady(ident) from e
+                self.sleep(2.0)
 
-    def revoke(self, agent: str, db: str) -> list[str]:
+    def delete_users(self, agent: str, db: str) -> list[str]:
         prefix = user_prefix(db, agent)
         gone = []
         for u in self.admin.list_users():
@@ -187,6 +224,10 @@ class IdentityManager:
             if name.startswith(prefix):
                 self.admin.delete_user(name, u.get("databaseName", "admin"))
                 gone.append(name)
+        return gone
+
+    def revoke(self, agent: str, db: str) -> list[str]:
+        gone = self.delete_users(agent, db)
         try:
             self.admin.delete_role(role_name(db, agent))
         except AtlasError as e:
@@ -228,7 +269,10 @@ _cache_lock = threading.Lock()
 
 
 def manager() -> IdentityManager | None:
+    """The process's IdentityManager; None unless AGENT_IDENTITIES=generated and creds set."""
     global _manager
+    if not enabled():
+        return None
     if _manager is None:
         creds = credentials()
         if creds is None:
@@ -238,7 +282,11 @@ def manager() -> IdentityManager | None:
 
 
 def generated_identity(agent: str, db_name: str, shared_db) -> Identity | None:
-    """Provision (once per process) and start the role sync thread; None without creds."""
+    """Provision (once per process), wait up to AGENT_IDENTITY_WAIT_S, start the role sync.
+
+    None when the switch is off or credentials are missing. Raises NotReady when the user is
+    not usable in time: the caller stays on the shared connection for this process and the
+    unusable user is deleted in the background (no orphan users)."""
     m = manager()
     if m is None:
         return None
@@ -249,8 +297,21 @@ def generated_identity(agent: str, db_name: str, shared_db) -> Identity | None:
                 minutes=10):
             return ident
         perm = shared_db.permissions.find_one({"_id": agent}) or {}
-        ident = m.provision(agent, db_name, perm, os.environ["MONGODB_URI"])
+        try:
+            ident = m.provision(agent, db_name, perm, os.environ["MONGODB_URI"], wait_s())
+        except NotReady as e:
+            threading.Thread(target=_drop_user, args=(m, e.identity), daemon=True,
+                             name=f"identity-drop-{agent}").start()
+            raise
         _cache[key] = ident
     threading.Thread(target=m.sync, args=(shared_db, {agent}), daemon=True,
                      name=f"identity-sync-{agent}").start()
     return ident
+
+
+def _drop_user(m: IdentityManager, ident: Identity) -> None:
+    try:
+        m.admin.delete_user(ident.username or "", "admin")
+    except Exception as e:  # noqa: BLE001
+        log.warning("identity: could not delete unusable user %s (%s)", ident.username,
+                    type(e).__name__)
