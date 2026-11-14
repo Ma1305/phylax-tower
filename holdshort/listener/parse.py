@@ -122,8 +122,13 @@ class ParseLabel(BaseModel):
 
 def _user_prompt(text: str, context: dict[str, Any]) -> str:
     speaker = context.get("speaker")
+    live = context.get("live") or {}
+    live_txt = ", ".join(f"{cs} ({k or 'unknown'})" for cs, k in sorted(live.items()))
     return (
-        f"Recent calls on frequency:\n{_history_lines(context)}\n\n"
+        (f"Live traffic (answer from/to with one of these callsigns, a station "
+         f"TOWER/GROUND/OPS, or UNKNOWN; a spoken callsign means the live one whose "
+         f"number matches even if a word was misheard): {live_txt}\n\n" if live else "")
+        + f"Recent calls on frequency:\n{_history_lines(context)}\n\n"
         + (f"Radio identifies the transmitting station as: {speaker}\n" if speaker else "")
         + f"Call to label:\n\"{text}\""
     )
@@ -146,7 +151,12 @@ def rules_complete(label: dict[str, Any] | None) -> bool:
         return False
     if label.get("from") in (None, "", UNKNOWN):
         return False
+    if label.get("unresolved"):
+        return False  # a callsign-like phrase matched no live or known station
     kind = label.get("kind")
+    if kind in ("clearance", "stop") and label.get("to") in (None, "", UNKNOWN) \
+            and not (kind == "stop" and label.get("names_nobody", True)):
+        return False  # a controller instruction with no addressee: ask the model
     if kind in ("stop", "report"):
         return True
     return kind in ("clearance", "request", "readback") and label.get("instruction") != "none"
@@ -199,8 +209,14 @@ def _station(callsign: str, station: str | None) -> str:
     return station if station and callsign in STATIONS else callsign
 
 
-def _mentioned(callsign: str, text: str, aliases: dict[str, str] | None) -> bool:
+def _mentioned(callsign: str, text: str, aliases: dict[str, str] | None,
+               live: dict[str, Any] | None = None) -> bool:
     """True if some spoken form of `callsign` occurs in the transcript."""
+    from holdshort.listener import callsigns
+
+    plain = re.sub(r"\s+", " ", re.sub(r"[^\w\s,]", " , ", text.lower()))
+    if any(cs == callsign for _, _, cs in callsigns.find(plain, live or {}, aliases)):
+        return True
     words = re.sub(r"[^\w\s]", " ", text.lower()).split()
     for n in range(1, 7):
         for i in range(len(words) - n + 1):
@@ -273,7 +289,7 @@ def parse(
     flag = None
     if kind == "stop":
         instruction, runway, at = "none", None, None
-        if to != UNKNOWN and not _mentioned(to, text, aliases):
+        if to != UNKNOWN and not _mentioned(to, text, aliases, context.get("live")):
             to = UNKNOWN  # the LLM inferred an addressee nobody said: don't guess
         if to == UNKNOWN:
             flag = FLAG_STOP_NO_CALLSIGN

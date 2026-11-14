@@ -109,6 +109,7 @@ class ClipProcessor:
         )  # type: ignore[assignment]
         self._lock = threading.Lock()
         self._live: tuple[float, set[str]] = (0.0, set())
+        self._objs: tuple[float, dict[str, str | None]] = (0.0, {})
         self._aliases: tuple[float, dict[str, str]] = (0.0, {})
 
     # -- lookups (cached briefly) -------------------------------------------------
@@ -122,6 +123,25 @@ class ClipProcessor:
         with self._lock:
             self._live = (time.monotonic(), cs)
         return cs
+
+    def live_objects(self) -> dict[str, str | None]:
+        """Live callsign -> object kind (aircraft / vehicle), plus known callsigns."""
+        with self._lock:
+            at, objs = self._objs
+        if time.monotonic() - at < LIVE_CACHE_S:
+            return objs
+        objs = {}
+        for d in self.db.callsigns.find({}, {"callsign": 1, "kind": 1}):
+            cs = d.get("callsign") or d.get("_id")
+            if isinstance(cs, str) and cs:
+                objs[cs.upper()] = d.get("kind")
+        for d in self.db.objects.find({}, {"callsign": 1, "kind": 1}):
+            cs = d.get("callsign")
+            if isinstance(cs, str) and cs:
+                objs[cs.upper()] = d.get("kind")
+        with self._lock:
+            self._objs = (time.monotonic(), objs)
+        return objs
 
     def aliases(self) -> dict[str, str]:
         with self._lock:
@@ -180,6 +200,7 @@ class ClipProcessor:
             "decision_id": None,
         }
         context = {"t": clip["t_start"], "speaker": speaker, "aliases": self.aliases(),
+                   "live": self.live_objects(),
                    "station": station, "fields": fields}
         tx = parse(text, context, confidence=conf if text else 0.0,
                    llm=self.llm or get_labeller())
