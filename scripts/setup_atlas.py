@@ -201,7 +201,7 @@ _READ = {
     "safety": ["context", "objects", "lane_status", "lanes", "controllers", "streams", "rules",
                "permissions", "weather"],
     "procedures": ["context", "objects", "lane_status", "lanes", "controllers", "streams",
-                   "rules", "decisions", "intents_safety", "incidents"],
+                   "rules", "decisions", "intents_safety", "incidents", "permissions"],
     "weather": ["weather", "rules"],
     "system": [],
 }
