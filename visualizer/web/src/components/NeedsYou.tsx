@@ -70,13 +70,12 @@ export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, 
           return (
             <article key={d._id} className="stop" data-decision={d._id} role="alert">
               <div className="stop-top">
-                <span className="stop-sign" aria-hidden />
-                <b>STOP in effect</b>
+                                <b>Stop in effect</b>
                 <span className="mono">
                   {hhmmss(d.t)} · {ago(Date.now() - Date.parse(d.t))}
                 </span>
               </div>
-              <p className="call">“{d.text ?? '(no text)'}”</p>
+              <p className="call">{d.text ?? '(no text)'}</p>
               <p className="told">
                 {d.approved_by ? `Approved by ${ctlName(d.approved_by)}` : 'Issued by Phylax'} to {d.target.join(', ') || 'traffic'}
                 {spoken ? ` on ${streamName(spoken.stream_id)}` : d.stream_id ? ` on ${streamName(d.stream_id)}` : ''} · {ctlName(d.controller_id)} told
@@ -101,7 +100,7 @@ export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, 
                 {d.stream_id ? ` · ${streamName(d.stream_id)}` : ''}
               </span>
             </div>
-            <p className="call">“{d.text ?? '(no text)'}”</p>
+            <p className="call">{d.text ?? '(no text)'}</p>
             {(d.intent?.detail || d.intent?.reason) && <p className="told">{d.intent?.detail ?? d.intent?.reason}</p>}
             {errors[d._id] && (
               <div className="req-error" role="alert">

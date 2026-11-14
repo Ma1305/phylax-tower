@@ -23,8 +23,8 @@ type Zoom = 'airfield' | 'approach';
 
 // Flushing Bay and Bowery Bay, drawn by hand around the field (lon, lat).
 const WATER: number[][][] = [
-  [[-73.8660, 40.8050], [-73.8672, 40.7905], [-73.8640, 40.7868], [-73.8600, 40.7822], [-73.8548, 40.7780], [-73.8520, 40.7735], [-73.8490, 40.7660], [-73.8440, 40.7600], [-73.8200, 40.7600], [-73.8200, 40.8050]],
-  [[-73.9100, 40.8050], [-73.9100, 40.7790], [-73.8960, 40.7800], [-73.8880, 40.7822], [-73.8820, 40.7850], [-73.8760, 40.7868], [-73.8700, 40.7900], [-73.8672, 40.7905], [-73.8660, 40.8050]],
+  [[-73.866, 40.805], [-73.866, 40.789], [-73.856, 40.779], [-73.851, 40.772], [-73.851, 40.76], [-73.82, 40.76], [-73.82, 40.805]],
+  [[-73.91, 40.805], [-73.91, 40.781], [-73.886, 40.781], [-73.874, 40.789], [-73.866, 40.789], [-73.866, 40.805]],
 ];
 const PLANE = 'M0,-15 C1.7,-15 2.4,-12 2.4,-9 L2.4,-3.5 L14,4 L14,6.8 L2.4,3.6 L2.1,9.5 L6,12.6 L6,14.4 L0,12.8 L-6,14.4 L-6,12.6 L-2.1,9.5 L-2.4,3.6 L-14,6.8 L-14,4 L-2.4,-3.5 L-2.4,-9 C-2.4,-12 -1.7,-15 0,-15 Z';
 
@@ -106,10 +106,10 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
   }, [world]);
 
   const view = zoom === 'airfield' ? geom.airfield : geom.approach;
-  const scale = Math.min(size.w / (view.x1 - view.x0), size.h / (view.y1 - view.y0));
+  const scale = Math.min(size.w / (view.x1 - view.x0), Math.max(120, size.h - 72) / (view.y1 - view.y0));
   const cx = (view.x0 + view.x1) / 2;
   const cy = (view.y0 + view.y1) / 2;
-  const mpx = (m: XY): XY => [(m[0] - cx) * scale + size.w / 2, (m[1] - cy) * scale + size.h / 2];
+  const mpx = (m: XY): XY => [(m[0] - cx) * scale + size.w / 2, (m[1] - cy) * scale + size.h / 2 + 30];
   const px = (lonLat: number[]): XY => mpx(geom.proj.toM(lonLat));
   const far = zoom === 'approach';
 
@@ -170,7 +170,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             const c = mpx(t.c);
             const w = t.len * scale;
             const h = 120 * scale;
-            return <rect key={i} className="terminal" x={-w / 2} y={-h / 2} width={w} height={h} rx={6} transform={`translate(${c[0]},${c[1]}) rotate(${t.ang})`} />;
+            return <rect key={i} className="terminal" x={-w / 2} y={-h / 2} width={w} height={h} transform={`translate(${c[0]},${c[1]}) rotate(${t.ang})`} />;
           })}
         {!far &&
           geom.termLabel &&
@@ -207,7 +207,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
           <LaneLabel key={l._id} lane={l} status={statusOf(l._id)} px={px} far={far} dim={dim(l._id)} scale={scale} />
         ))}
 
-        {objects.map((o) => {
+        {objects.map((o, idx) => {
           const p = px(o.position.coordinates);
           const name = o.callsign ?? o.label ?? o._id;
           const air = o.status === 'airborne';
@@ -229,21 +229,26 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
                 : laneOf(o.lane_id)?.kind === 'runway'
                   ? `on runway ${laneOf(o.lane_id)!.designators.join('/')}`
                   : '';
-          const dx = o.kind === 'aircraft' ? 24 : 16;
+          const below = idx % 2 === 1;
+          const lx = 16;
+          const ly = below ? 20 : sub ? -18 : -8;
           return (
             <g key={o._id} className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth ? 'smooth' : ''} ${hot ? 'hot' : ''}`} style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}>
               <title>{`${name} · ${o.kind} · ${o.status}${o.lane_id ? ' · on ' + o.lane_id : ''}`}</title>
-              {hot && <circle r={o.kind === 'aircraft' ? 26 : 16} className="obj-ring" />}
+              {hot && <circle r={11} className="obj-ring" />}
               <ObjGlyph o={o} small={far} />
               {showLabel && (
-                <text x={dx} y={sub ? -4 : 5} className="obj-label">
-                  <tspan className="obj-name">{o.kind === 'vehicle' && sub ? `${name} · ${sub}` : name}</tspan>
-                  {sub && o.kind !== 'vehicle' && (
-                    <tspan x={dx} dy={17} className="obj-data">
-                      {sub}
-                    </tspan>
-                  )}
-                </text>
+                <>
+                  <line x1={6} y1={below ? 6 : -6} x2={lx - 3} y2={below ? ly - 6 : ly + 4} className="leader" />
+                  <text x={lx} y={ly} className="obj-label">
+                    <tspan className="obj-name">{name}</tspan>
+                    {sub && (
+                      <tspan x={lx} dy={14} className="obj-data">
+                        {sub}
+                      </tspan>
+                    )}
+                  </text>
+                </>
               )}
             </g>
           );
@@ -280,18 +285,10 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
 
 function ObjGlyph({ o, small }: { o: ObjectDoc; small: boolean }) {
   const hdg = o.heading_deg ?? 0;
-  if (o.kind === 'aircraft') return <path d={PLANE} className="glyph plane" transform={`rotate(${hdg}) scale(${small ? 0.8 : o.status === 'airborne' ? 1.5 : 1.15})`} />;
-  if (small) return <circle r={2.5} className={`glyph ${o.kind}`} />;
-  if (o.kind === 'vehicle') return <rect x={-5} y={-9} width={10} height={18} rx={3} className="glyph vehicle" transform={`rotate(${hdg})`} />;
-  if (o.kind === 'person') return <circle r={3.5} className="glyph person" />;
-  return (
-    <g>
-      <circle r={8} className="glyph unknown" />
-      <text y={4} textAnchor="middle" className="glyph-q">
-        ?
-      </text>
-    </g>
-  );
+  if (o.kind === 'aircraft') return <path d={PLANE} className="glyph plane" transform={`rotate(${hdg}) scale(${small ? 0.45 : 0.55})`} />;
+  if (o.kind === 'vehicle') return <rect x={-2.5} y={-4} width={5} height={8} className="glyph vehicle" transform={`rotate(${hdg})`} />;
+  if (o.kind === 'person') return <circle r={2} className="glyph person" />;
+  return <path d="M0,-5 L5,0 L0,5 L-5,0 Z" className="glyph unknown" />;
 }
 
 interface LaneShapeProps {
@@ -311,7 +308,7 @@ function LaneShape({ lane, state, px, scale, far, dim, owned }: LaneShapeProps) 
     const a = px(c[0]);
     const b = px(c[c.length - 1]);
     const rw = lane.kind === 'runway';
-    const w = Math.max((lane.width_m ?? 20) * scale * (rw ? 1.25 : 1), rw ? (far ? 4 : 14) : far ? 2 : 8);
+    const w = Math.max((lane.width_m ?? 20) * scale, rw ? (far ? 3 : 11) : far ? 2 : 6);
     const line = { x1: a[0], y1: a[1], x2: b[0], y2: b[1] };
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
     const ang = (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI;
@@ -319,7 +316,6 @@ function LaneShape({ lane, state, px, scale, far, dim, owned }: LaneShapeProps) 
     return (
       <g className={cls}>
         <title>{`${lane.name}: ${state}`}</title>
-        {state !== 'clear' && <line {...line} strokeWidth={w + 14} className="lane-glow" />}
         {state !== 'clear' && <line {...line} strokeWidth={w + 3} className="lane-outline" />}
         <line {...line} strokeWidth={w} className="lane-body" />
         {rw && !far && <line {...line} className="rwy-center" strokeDasharray={`${len / 42} ${len / 42}`} strokeDashoffset={-len / 28} />}
@@ -365,18 +361,18 @@ function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?:
     let ny = ux;
     if (nx < 0) [nx, ny] = [-nx, -ny];
     if (lane.kind === 'runway') {
-      const off = w / 2 + 20;
+      const off = w / 2 + 14;
       if (!far) {
         labels.push({ p: [a[0] + ux * 30 + nx * off, a[1] + uy * 30 + ny * off + 6], t: `RWY ${lane.designators[0]}` });
         labels.push({ p: [b[0] - ux * 10 + nx * off, b[1] - uy * 10 + ny * off + 6], t: `RWY ${lane.designators[1] ?? ''}` });
       }
-      chip = [a[0] + (b[0] - a[0]) * 0.34 - nx * (off + 34), a[1] + (b[1] - a[1]) * 0.34 - ny * (off + 8)];
+      chip = [a[0] + (b[0] - a[0]) * 0.3 - nx * (off + 36), a[1] + (b[1] - a[1]) * 0.3 - ny * (off + 6)];
     } else {
       const hi = a[1] < b[1] ? a : b;
       const long = len > 400;
-      const lp: XY = long ? [(a[1] > b[1] ? a : b)[0] + 16, (a[1] > b[1] ? a : b)[1] + 24] : [hi[0] - 66, hi[1] - 10];
+      const lp: XY = long ? [(a[1] > b[1] ? a : b)[0] + 16, (a[1] > b[1] ? a : b)[1] + 24] : [hi[0] - 52, hi[1] - 8];
       labels.push({ p: lp, t: `TWY ${lane.designators[0]}` });
-      chip = [lp[0] + 30, lp[1] + 24];
+      chip = [lp[0] + 20, lp[1] - 22];
     }
   } else {
     const ring = lane.area?.coordinates[0] ?? [];
@@ -388,7 +384,7 @@ function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?:
     chip = [cen[0], cen[1] + 30];
   }
   const text = STATE_META[state].label;
-  const cw = text.length * 7.6 + 20;
+  const cw = text.length * 6.6 + 14;
   return (
     <g className={`lane-label st-${state} ${dim ? 'dim' : ''}`}>
       {labels.map((l) => (
@@ -397,10 +393,10 @@ function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?:
         </text>
       ))}
       {state !== 'clear' && (lane.kind === 'runway' || state === 'conflict' || state === 'closed') && (
-        <g transform={`translate(${chip[0] - cw / 2},${chip[1] - 11})`} className="chip">
+        <g transform={`translate(${chip[0] - cw / 2},${chip[1] - 10})`} className="chip">
           <title>{status?.reason ?? `${lane.name}: ${state}`}</title>
-          <rect width={cw} height={22} rx={11} className="chip-bg" />
-          <text x={cw / 2} y={15} textAnchor="middle" className="chip-text">
+          <rect width={cw} height={20} rx={4} className="chip-bg" />
+          <text x={cw / 2} y={14} textAnchor="middle" className="chip-text">
             {text}
           </text>
         </g>
