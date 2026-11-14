@@ -17,8 +17,10 @@ From the record:
 - 23:37:12 and 23:37:20 the controller told Truck 1 to stop. Its speed kept increasing.
 - About 23:37:24 the jet, at about 90 knots, struck Truck 1 at the intersection.
 
-Radio wording is reconstructed in standard phraseology, except the first stop call, which
-follows the published recording. The calls on the Ground and Ops streams about the other
+The truck's request, the clearance, the readback and the stop calls follow the wording
+news outlets transcribed from the tower recording (with the word "runway" kept in, which the
+recording drops: "cross four at Delta"). The other calls are reconstructed in standard
+phraseology. The calls on the Ground and Ops streams about the other
 emergency are invented context, not from the record.
 
 What the simulator adds: if Hold Short tells Truck 1 to stop by name, the crew brakes after
@@ -68,12 +70,12 @@ BLOCKER = "Tower, Frontier four one niner five, on Bravo."
 WHICH_VEHICLE = "Vehicle needing to cross the runway, say your call sign."
 TRUCK1_REPLY = "Truck one and company."
 TRUCK1_ACK = "Truck one and company, LaGuardia tower."
-REQUEST = "Truck one and company, request to cross runway four at Delta."
+REQUEST = "Truck one and company, LaGuardia tower, requesting to cross runway four at Delta."
 CLEARANCE = "Truck one and company, cross runway four at Delta."
-READBACK = "Cross runway four at Delta, Truck one and company."
+READBACK = "Truck one and company, crossing runway four at Delta."
 STOP_1 = ("Frontier four one niner five, just stop there please. Stop, stop, stop, stop. "
           "Truck one, stop, stop, stop.")          # after the published recording
-STOP_2 = "Stop, Truck one. Stop!"
+STOP_2 = "Stop, Truck one, stop. Stop, Truck one, stop!"
 HOLDING = "Truck one and company, holding short of runway four."
 RESUME_READBACK = "Crossing runway four at Delta, Truck one and company."
 CLEAR = "Truck one and company, clear of runway four."

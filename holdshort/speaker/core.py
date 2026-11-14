@@ -1,10 +1,12 @@
 """Turn executed stops / approved instructions into outbound audio + a synthetic transmission.
 
 Watches ``decisions`` (insert-only) with a resumable change stream. For each decision that
-``should_speak``: synthesise ``decision.text`` (ElevenLabs TTS when voice is enabled, else an
-ffmpeg two-tone placeholder), store the bytes in GridFS bucket ``audio``, insert an
-``audio_clips`` document (direction "out") and an outbound ``transmissions`` document
-(synthetic, ``decision_id`` set). Exactly once per decision: guarded on ``decision_id``.
+``should_speak``: publish first, synthesise after. The ``audio_clips`` document (direction
+"out", status "processing", no audio yet) and the outbound ``transmissions`` document
+(synthetic, ``decision_id`` set) are inserted at once, so traffic hears the call without
+waiting for speech; then ``decision.text`` is synthesised (ElevenLabs TTS when voice is enabled,
+else an ffmpeg two-tone placeholder), stored in GridFS bucket ``audio`` and attached to the clip
+(``audio_id``, status "done"). Exactly once per decision: guarded on ``decision_id``.
 """
 
 from __future__ import annotations
@@ -17,6 +19,7 @@ import shutil
 import struct
 import subprocess
 import wave
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -132,8 +135,10 @@ def should_speak(decision: dict[str, Any]) -> bool:
     return bool((decision.get("text") or "").strip())
 
 
-def speak_decision(db: Database, decision: dict[str, Any]) -> dict | None:
-    """Speak one decision. Returns the transmission inserted, or None (skipped / done before)."""
+def publish_decision(db: Database, decision: dict[str, Any]) -> dict | None:
+    """Publish first: insert the outbound clip (status "processing", no audio yet) and the
+    synthetic transmission right away, so GET /ingest/outbound sees the call within
+    milliseconds. Returns the transmission inserted, or None (skipped / done before)."""
     if not should_speak(decision):
         return None
     if db.transmissions.find_one({"decision_id": decision["_id"]}, {"_id": 1}):
@@ -148,20 +153,15 @@ def speak_decision(db: Database, decision: dict[str, Any]) -> dict | None:
     tower_id = decision.get("tower_id")
     is_stop = decision.get("intent_action") == "stop"
 
-    data, mime = synthesize(text)
     t_start = now()
-    dur = duration_of(data, mime)
+    # until the audio exists, estimate the length from the text (about 15 characters a second)
+    dur = round(max(1.0, len(text) / 15.0), 3)
     t_end = t_start + timedelta(seconds=dur)
-    audio_id = gridfs.GridFSBucket(db, bucket_name="audio").upload_from_stream(
-        f"out-{decision['_id']}", data, metadata={"mime": mime, "decision_id": decision["_id"]})
-
     clip = to_mongo(AudioClip(
         tower_id=tower_id, stream_id=stream_id, direction="out", t_start=t_start, t_end=t_end,
-        duration_s=dur, audio_id=audio_id, mime=mime, truth_text=text, speaker=HOLDSHORT,
-        status="done", created_at=t_start,
+        duration_s=dur, audio_id=None, mime=None, truth_text=text, speaker=HOLDSHORT,
+        status="processing", created_at=t_start,
     ))
-    clip_id = db.audio_clips.insert_one(clip).inserted_id
-
     targets = decision.get("target") or []
     tx = to_mongo(Transmission(
         tower_id=tower_id, stream_id=stream_id, controller_id=controller_id, t=t_start,
@@ -170,16 +170,50 @@ def speak_decision(db: Database, decision: dict[str, Any]) -> dict | None:
         kind="stop" if is_stop else "other",
         instruction="hold_short" if is_stop else "none",
         lane_id=decision.get("lane_id"), transcript=text, confidence=1.0,
-        readback="not_applicable", verified=True, clip_id=clip_id, audio_id=audio_id,
+        readback="not_applicable", verified=True, clip_id=None, audio_id=None,
         synthetic=True, decision_id=decision["_id"],
     ))
     # re-check right before the insert (a second speaker could have raced us)
     if db.transmissions.find_one({"decision_id": decision["_id"]}, {"_id": 1}):
         return None
+    clip_id = db.audio_clips.insert_one(clip).inserted_id
+    tx["clip_id"] = clip_id
     tx["_id"] = db.transmissions.insert_one(tx).inserted_id
     db.audio_clips.update_one({"_id": clip_id}, {"$set": {"transmission_id": tx["_id"]}})
-    log.info("spoke decision %s on %s: %s", decision["_id"], stream_id, text)
+    log.info("published decision %s on %s in %.0f ms: %s", decision["_id"], stream_id,
+             (now() - t_start).total_seconds() * 1000, text)
     return tx
+
+
+def attach_audio(db: Database, tx: dict[str, Any]) -> dict:
+    """Synthesise after: make the speech for a published call, store it in GridFS and attach it
+    to the clip (audio_id, status "done") and the transmission. Returns the updated tx."""
+    text = tx["transcript"]
+    try:
+        data, mime = synthesize(text)
+        dur = duration_of(data, mime)
+        audio_id = gridfs.GridFSBucket(db, bucket_name="audio").upload_from_stream(
+            f"out-{tx['decision_id']}", data,
+            metadata={"mime": mime, "decision_id": tx["decision_id"]})
+    except Exception as e:  # noqa: BLE001 - the call is already out; mark the clip failed
+        log.warning("speech for decision %s failed: %s", tx["decision_id"], redact(e))
+        db.audio_clips.update_one({"_id": tx["clip_id"]},
+                                  {"$set": {"status": "failed", "error": redact(e)}})
+        return tx
+    t_end = tx["t"] + timedelta(seconds=dur)
+    db.audio_clips.update_one({"_id": tx["clip_id"]}, {"$set": {
+        "audio_id": audio_id, "mime": mime, "duration_s": dur, "t_end": t_end,
+        "status": "done"}})
+    db.transmissions.update_one({"_id": tx["_id"]},
+                                {"$set": {"audio_id": audio_id, "t_end": t_end}})
+    log.info("speech attached for decision %s (%.1f s %s)", tx["decision_id"], dur, mime)
+    return {**tx, "audio_id": audio_id, "t_end": t_end}
+
+
+def speak_decision(db: Database, decision: dict[str, Any]) -> dict | None:
+    """Publish, then synthesise (synchronously). Returns the transmission, or None."""
+    tx = publish_decision(db, decision)
+    return attach_audio(db, tx) if tx else None
 
 
 class Speaker(StreamAgent):
@@ -198,5 +232,12 @@ class Speaker(StreamAgent):
         self.log.info("voice %s", "ON (ElevenLabs TTS)" if voice_enabled()
                       else "OFF (VOICE_ENABLED false or no ELEVENLABS_API_KEY): placeholder tone")
 
+    _pool: ThreadPoolExecutor | None = None
+
     def handle(self, doc: dict[str, Any]) -> None:
-        speak_decision(self.db, doc)
+        tx = publish_decision(self.db, doc)  # visible to traffic now
+        if tx is None:
+            return
+        if self._pool is None:
+            self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="speaker-tts")
+        self._pool.submit(attach_audio, self.db, tx)  # speech never delays the next decision
