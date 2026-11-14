@@ -680,6 +680,16 @@ def test_no_auto_stop_once_the_landing_aircraft_is_clear_of_the_runway(armed, sp
     assert outbound(client)["calls"] == [] and store.outbound == []
 
 
+def test_only_the_landing_aircraft_can_report_itself_clear(armed):
+    client, store, clock = armed
+    say(client, "LGA_TWR", "TOWER", LANDING)
+    say(client, "LGA_GND", "TRUCK1", "Truck one will cross once Air Canada eight six four six "
+                                     "is clear of runway four.")
+    say(client, "LGA_GND", "GROUND", CROSSING)
+    clock.advance(10)
+    assert [c["target"] for c in store.outbound] == [["TRUCK1"]]
+
+
 def test_no_auto_stop_when_the_rule_is_off(world):
     app = create_stub_app(world)  # auto_stop_after_s is None
     clock = app.state.store.now = Clock()
@@ -736,6 +746,21 @@ def test_auto_stop_is_about_the_runway_being_landed_on(armed):
     [call] = store.outbound
     assert (call["lane_id"], call["stream_id"]) == ("RWY_13_31", "LGA_OPS")
     assert call["text"] == "Truck one, STOP. Hold short runway one three."
+
+
+@pytest.mark.parametrize("landing", [
+    "Air Canada eight six four six, runway zero four, cleared to land.",
+    "Air Canada eight six four six, cleared to land runway four, zero three zero at one two.",
+    "Air Canada eight six four six, wind 030 at 12, runway 04, cleared to land.",
+])
+def test_auto_stop_understands_how_runways_are_said(armed, landing):
+    client, store, clock = armed
+    say(client, "LGA_TWR", "TOWER", landing)
+    say(client, "LGA_GND", "GROUND", "Truck one, cross runway two two at Delta.")  # 04's other end
+    clock.advance(10)
+    [call] = store.outbound
+    assert call["lane_id"] == "RWY_04_22"
+    assert call["text"] == "Truck one, STOP. Hold short runway two two."
 
 
 def test_reset_ends_the_landing_clearance_and_cancels_a_pending_stop(armed, world):

@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hmac
 import json
 import logging
 import os
+import secrets
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -31,6 +33,26 @@ from hssim.world import World
 
 log = logging.getLogger("hssim")
 ROOT = Path(__file__).resolve().parents[1]
+TOKEN_FILE = ROOT / ".cache" / "control-token"
+TOKEN_HEADER = "X-Sim-Token"
+
+
+def new_control_token() -> str:
+    """The secret `serve` requires on POST /inject. $SIM_CONTROL_TOKEN if set, else a random
+    one, saved (owner-only) where `hssim inject` on the same machine can read it. Without it
+    any web page open in a browser on this machine could trigger an incident."""
+    token = os.environ.get("SIM_CONTROL_TOKEN") or secrets.token_urlsafe(24)
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.touch(mode=0o600, exist_ok=True)
+    TOKEN_FILE.chmod(0o600)
+    TOKEN_FILE.write_text(token)
+    return token
+
+
+def read_control_token() -> str | None:
+    if os.environ.get("SIM_CONTROL_TOKEN"):
+        return os.environ["SIM_CONTROL_TOKEN"]
+    return TOKEN_FILE.read_text().strip() if TOKEN_FILE.is_file() else None
 
 
 def load_env() -> None:
@@ -156,8 +178,9 @@ async def run_scenario(args: argparse.Namespace) -> Outcome:
 async def serve(args: argparse.Namespace) -> None:
     """Normal traffic forever, with a small control API to inject incidents on demand."""
     import uvicorn
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, Header, HTTPException
 
+    token = new_control_token()
     box = _voicebox(args)
     opts = {**_opts(args), "loop": True}
     if box is not None and not args.no_warm and getattr(box, "provider", "tone") != "tone":
@@ -180,7 +203,10 @@ async def serve(args: argparse.Namespace) -> None:
                 "scenarios": [n for n, s in SCENARIOS.items() if s.kind == "incident"]}
 
     @control.post("/inject/{name}")
-    def inject(name: str) -> dict[str, Any]:
+    def inject(name: str, x_sim_token: str | None = Header(default=None)) -> dict[str, Any]:
+        if not x_sim_token or not hmac.compare_digest(x_sim_token, token):
+            raise HTTPException(403, f"missing or wrong {TOKEN_HEADER} header "
+                                     "(use `python -m hssim inject <scenario>`)")
         if name not in SCENARIOS or name == "normal":
             raise HTTPException(404, f"unknown scenario {name!r}")
         queue.put_nowait(name)
@@ -188,17 +214,22 @@ async def serve(args: argparse.Namespace) -> None:
 
     server = uvicorn.Server(uvicorn.Config(control, host=args.control_host,
                                            port=args.control_port, log_level="warning"))
-    log.info("control API on http://%s:%d  (POST /inject/crossing, GET /status)",
-             args.control_host, args.control_port)
+    log.info("control API on http://%s:%d  (GET /status; inject with "
+             "`python -m hssim inject crossing`)", args.control_host, args.control_port)
     api = asyncio.ensure_future(server.serve())
+    traffic = asyncio.ensure_future(
+        sim.run(lambda s: SCENARIOS["normal"].run(s, opts), scenario="normal", kind="normal",
+                note="continuous normal traffic", reset=not args.no_reset))
     try:
-        await sim.run(lambda s: SCENARIOS["normal"].run(s, opts), scenario="normal",
-                      kind="normal", note="continuous normal traffic",
-                      reset=not args.no_reset)
+        # uvicorn takes Ctrl-C / SIGTERM for itself and just returns, so whichever of the
+        # two ends first ends the other: stopping the control API stops the traffic too
+        await asyncio.wait({api, traffic}, return_when=asyncio.FIRST_COMPLETED)
     finally:
         server.should_exit = True
-        await asyncio.gather(api, return_exceptions=True)
+        traffic.cancel()
+        await asyncio.gather(api, traffic, return_exceptions=True)
         await client.aclose()
+        log.info("stopped: traffic removed from the tower and the run marker closed")
 
 
 def _common(p: argparse.ArgumentParser) -> None:
@@ -273,11 +304,18 @@ def main(argv: list[str] | None = None) -> int:
 
         from hssim.stub_tower import create_stub_app
 
-        uvicorn.run(create_stub_app(auto_stop_after_s=args.auto_stop), host=args.host,
-                    port=args.port, log_level="info")
+        uvicorn.run(create_stub_app(ingest_key=os.environ.get("INGEST_KEY") or None,
+                                    auto_stop_after_s=args.auto_stop),
+                    host=args.host, port=args.port, log_level="info")
         return 0
     if args.cmd == "inject":
-        r = httpx.post(f"{args.control.rstrip('/')}/inject/{args.scenario}", timeout=10)
+        token = read_control_token()
+        if not token:
+            print("no control token found: is `python -m hssim serve` running on this machine? "
+                  "(or set SIM_CONTROL_TOKEN to the one it was started with)")
+            return 1
+        r = httpx.post(f"{args.control.rstrip('/')}/inject/{args.scenario}",
+                       headers={TOKEN_HEADER: token}, timeout=10)
         print(r.status_code, r.text)
         return 0 if r.status_code == 200 else 1
     try:

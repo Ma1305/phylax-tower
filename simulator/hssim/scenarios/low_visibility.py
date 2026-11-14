@@ -23,7 +23,7 @@ async def run(sim: Sim, opts: dict[str, Any]) -> dict[str, Any]:
     await sim.weather(3.0, "03012KT", metar(sim, "3SM", "03012KT", "BR BKN008"))
     landing = sim.flow(arrival(sim, af, "AC8646", start_nm=6.0, stand=0,
                                tail=not opts.get("short", False)), name="arrival")
-    takeoff = sim.flow(_later(sim, 12, departure(sim, af, "DL2214", stand=2)),
+    takeoff = sim.flow(_later(sim, 12, lambda: departure(sim, af, "DL2214", stand=2)),
                        name="departure")
     await sim.sleep(40)
     await sim.weather(0.75, "02008KT", metar(sim, "3/4SM", "02008KT", "BR OVC003"))

@@ -24,9 +24,10 @@ VEHICLES = ["TRUCK2", "TRUCK3"]
 PERIOD_S = 240
 
 
-async def _later(sim: Sim, delay_s: float, coro: Any) -> Any:
+async def _later(sim: Sim, delay_s: float, start: Any) -> Any:
+    """Wait, then run ``start()`` (a function returning the flow to run)."""
     await sim.sleep(delay_s)
-    return await coro
+    return await start()
 
 
 def start_background(sim: Sim, af: Airfield) -> None:
@@ -42,9 +43,10 @@ def start_cycle(sim: Sim, af: Airfield, i: int) -> list[asyncio.Task]:
     return [
         sim.flow(arrival(sim, af, ARRIVALS[i % len(ARRIVALS)], stand=i % 2),
                  name=f"arrival{i}"),
-        sim.flow(_later(sim, 12, departure(sim, af, DEPARTURES[i % len(DEPARTURES)],
-                                           stand=2 + i % 2)), name=f"departure{i}"),
-        sim.flow(_later(sim, 150, vehicle_crossing(sim, af, VEHICLES[i % len(VEHICLES)])),
+        sim.flow(_later(sim, 12, lambda: departure(sim, af, DEPARTURES[i % len(DEPARTURES)],
+                                                   stand=2 + i % 2)), name=f"departure{i}"),
+        sim.flow(_later(sim, 150, lambda: vehicle_crossing(sim, af,
+                                                           VEHICLES[i % len(VEHICLES)])),
                  name=f"crossing{i}"),
     ]
 

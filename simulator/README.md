@@ -52,7 +52,10 @@ curl -s localhost:8200/status
 ```
 
 An injected incident starts as soon as the traffic already in progress has finished, so the
-runway is quiet when it begins.
+runway is quiet when it begins. Injecting needs a token: `serve` creates one at start-up
+(`.cache/control-token`, readable only by you) and `inject` on the same machine reads it, so
+a web page open in a browser cannot trigger an incident. Set `SIM_CONTROL_TOKEN` on both
+sides to choose your own.
 
 ## Scenarios
 

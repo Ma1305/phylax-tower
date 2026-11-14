@@ -13,9 +13,8 @@ Outside the contract, for developers:
   tells the crosser to stop that many seconds later. It stands in for the tower's agents
   so the closed loop can be tested.
 
-Run it by hand::
-
-    python -m hssim.stub_tower --port 8000 --auto-stop 3
+Serve it with ``python -m hssim stub --port 8000 --auto-stop 3`` (``hssim/cli.py``), or hand
+``create_stub_app()`` to uvicorn or to an in-process test client.
 """
 
 from __future__ import annotations
@@ -171,7 +170,7 @@ class StubStore:
     def add_clip(self, *, kind: str, stream_id: str, t_start: datetime, duration_s: float | None,
                  speaker: str | None, text: str | None, size_bytes: int | None = None,
                  mime: str | None = None) -> dict:
-        """Record one utterance (``kind`` is "audio" or "transcript") and let the safety rule hear it."""
+        """Record one utterance (``kind`` is "audio" or "transcript"); the safety rule hears it."""
         now = self.now()
         clip = {"clip_id": uuid.uuid4().hex, "kind": kind, "stream_id": stream_id,
                 "t_start": _iso(t_start), "duration_s": duration_s, "speaker": speaker,
@@ -182,17 +181,23 @@ class StubStore:
         return clip
 
     def _hear(self, clip: dict, now: datetime) -> None:
-        """The safety rule: stop whoever is cleared to cross a runway someone is cleared to land on."""
+        """The safety rule, fed every utterance that comes with its text.
+
+        A controller's "cleared to land" puts the callsign it names on that runway until that
+        aircraft says "clear of runway" or "vacated" (or a reset). A controller's "cross runway
+        N" to anyone else while a landing is on that runway schedules a stop for them.
+        """
         if self.auto_stop_after_s is None or not clip["text"]:
             return
         text = re.sub(r"[^a-z0-9]+", " ", clip["text"].lower()).strip()
         named = phrases.find_callsigns(clip["text"], list(self._callsigns))
         speaker = (clip["speaker"] or "").upper()
         if speaker not in CONTROLLER_STATIONS:
-            # traffic talking: the landing is over once that aircraft says it is off the runway
             if "clear of runway" in text or "vacated" in text:
-                for callsign in [c for c in self._landing if c.upper() == speaker or c in named]:
-                    del self._landing[callsign]
+                # said by the speaker, or by whoever the text names when the speaker is no callsign
+                who = [c for c in self._callsigns if c.upper() == speaker] or named
+                for callsign in who:
+                    self._landing.pop(callsign, None)
             return
         runways = self._runways_named(text)
         cleared_at = text.find("cleared to land")
@@ -210,11 +215,12 @@ class StubStore:
                     "text": f"{spoken}, STOP. Hold short runway {phrases.digits(designator)}."}))
 
     def _runways_named(self, text: str) -> list[tuple[int, bool, str, str]]:
-        """Each runway in lower-case, unpunctuated ``text``: (where, said as "cross runway", designator, lane id)."""
+        """Each runway named in ``text`` (lower case, no punctuation), in order:
+        (where, whether it was "cross runway ...", designator, lane id)."""
         found = []
         for m in _RUNWAY.finditer(text):
             words = m.group(2).split()
-            # "runway one three" is 13; in "runway four, one six zero at eight" only "four" is the runway
+            # "runway one three" is 13; in "runway four, one six zero at eight" it is only "four"
             name = next((n for n in (" ".join(words[:2]), words[0]) if n in self._runways), None)
             if name:
                 found.append((m.start(), bool(m.group(1)), *self._runways[name]))
@@ -614,26 +620,3 @@ def create_stub_app(world: World | None = None, *, ingest_key: str | None = None
     app.include_router(ingest)
     app.include_router(dev)
     return app
-
-
-def main(argv: list[str] | None = None) -> None:
-    import argparse
-
-    import uvicorn
-
-    parser = argparse.ArgumentParser(description="Run the stub tower: a stand-in for the tower's "
-                                                 "/ingest API. INGEST_KEY, if set, is required "
-                                                 "as the X-Ingest-Key header.")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--auto-stop", type=float, default=None, metavar="SECONDS",
-                        help="turn on the built-in safety rule: stop a runway crossing this long "
-                             "after it is cleared while another aircraft is cleared to land")
-    args = parser.parse_args(argv)
-    app = create_stub_app(ingest_key=os.environ.get("INGEST_KEY") or None,
-                          auto_stop_after_s=args.auto_stop)
-    uvicorn.run(app, host=args.host, port=args.port)
-
-
-if __name__ == "__main__":
-    main()
