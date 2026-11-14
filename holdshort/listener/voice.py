@@ -18,7 +18,9 @@ from holdshort.env import redact
 
 API = "https://api.elevenlabs.io/v1"
 STT_MODEL = os.environ.get("ELEVENLABS_STT_MODEL", "").strip() or "scribe_v1"
-TIMEOUT_S = 120
+# Seconds to wait for ElevenLabs (isolation / speech-to-text). Keep it short on the live
+# path: when it expires the listener falls back to the clip truth text.
+TIMEOUT_S = float(os.environ.get("ELEVENLABS_TIMEOUT_S", "").strip() or 120)
 # ElevenLabs audio-isolation rejects shorter clips (HTTP 400 audio_too_short); most radio
 # calls are shorter, so those go straight to speech-to-text without a wasted call.
 ISOLATION_MIN_S = 4.6
@@ -56,6 +58,8 @@ def clean(path: str | Path) -> Path:
     path = Path(path)
     if not voice_enabled():
         return path
+    if os.environ.get("VOICE_ISOLATION", "").strip().lower() in ("0", "off", "false", "no"):
+        return path  # isolation switched off: it costs seconds on the live path
     dur = duration_s(path)
     if dur is not None and dur < ISOLATION_MIN_S:
         return path  # too short for the isolation endpoint: passthrough
