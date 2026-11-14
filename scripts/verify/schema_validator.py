@@ -5,7 +5,7 @@ import sys
 from pymongo import MongoClient
 from pymongo.errors import WriteError
 
-from _env import URI_HELP, require
+from _env import URI_HELP, redact, require
 
 uri = require("MONGODB_URI", URI_HELP)
 db = MongoClient(uri, serverSelectionTimeoutMS=15000)[os.environ.get("MONGODB_DB", "holdshort")]
@@ -29,7 +29,7 @@ try:
         print("FAIL 5: invalid document was accepted")
         sys.exit(1)
 except Exception as e:
-    print(f"FAIL 5: {type(e).__name__}: {e}")
+    print(f"FAIL 5: {type(e).__name__}: {redact(e)}")
     sys.exit(1)
 finally:
     try:

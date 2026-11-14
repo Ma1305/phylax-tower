@@ -4,9 +4,9 @@ import sys
 
 import anthropic
 
-from _env import ROOT, require
+from _env import ENV_FILE, require
 
-key = require("LLM_API_KEY", f"Put an Anthropic API key in {ROOT}/.env as LLM_API_KEY=...")
+key = require("LLM_API_KEY", f"Put an Anthropic API key in {ENV_FILE} as LLM_API_KEY=...")
 model = os.environ.get("LLM_MODEL", "claude-opus-5-5")
 client = anthropic.Anthropic(api_key=key)
 try:

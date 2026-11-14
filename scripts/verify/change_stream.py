@@ -7,7 +7,7 @@ import uuid
 
 from pymongo import MongoClient
 
-from _env import URI_HELP, require
+from _env import URI_HELP, redact, require
 
 uri = require("MONGODB_URI", URI_HELP)
 db_name = os.environ.get("MONGODB_DB", "holdshort")
@@ -34,7 +34,7 @@ try:
             print("FAIL 4: no change event within 20s")
             sys.exit(1)
 except Exception as e:
-    print(f"FAIL 4: {type(e).__name__}: {e}")
+    print(f"FAIL 4: {type(e).__name__}: {redact(e)}")
     sys.exit(1)
 finally:
     try:
