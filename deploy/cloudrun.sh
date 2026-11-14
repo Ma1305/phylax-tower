@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build, push and deploy the two Hold Short APIs to Cloud Run.
-#   PROJECT_ID=my-proj REGION=us-east1 deploy/cloudrun.sh [--dry-run]
+#   deploy/cloudrun.sh [--dry-run]
+# Defaults: project ambient-handler-460806-t7, region us-east4 (override with PROJECT_ID, REGION, ...).
 # See deploy/README.md for what must exist first. Prints the two service URLs at the end.
 set -euo pipefail
 
@@ -8,18 +9,19 @@ DRY_RUN=0
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,4p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,5p' "$0"; exit 0 ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
 
-: "${PROJECT_ID:?set PROJECT_ID (the Google Cloud project id)}"
-: "${REGION:?set REGION (for example us-east1)}"
+PROJECT_ID="${PROJECT_ID:-ambient-handler-460806-t7}"
+REGION="${REGION:-us-east4}"
+FIREBASE_PROJECT="${FIREBASE_PROJECT:-hackathon-d0bf5}"   # Firebase Hosting project of the web app
 
 REPO="${AR_REPO:-holdshort}"                       # Artifact Registry docker repository
 TAG="${TAG:-$(git -C "$(dirname "$0")/.." rev-parse --short HEAD 2>/dev/null || echo latest)}"
 DOCKER="${DOCKER:-docker}"                         # e.g. DOCKER="sudo docker"
-REGISTRY="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}"
+REGISTRY="${REGISTRY:-${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}}"
 TOWER_IMAGE="${REGISTRY}/tower:${TAG}"
 VIZ_IMAGE="${REGISTRY}/viz-api:${TAG}"
 
@@ -31,8 +33,8 @@ SECRET_ELEVENLABS_API_KEY="${SECRET_ELEVENLABS_API_KEY:-holdshort-elevenlabs-api
 # Plain variables.
 MONGODB_DB="${MONGODB_DB:-holdshort_v2}"
 VOICE_ENABLED="${VOICE_ENABLED:-false}"
-CORS_ORIGINS="${CORS_ORIGINS:-https://${PROJECT_ID}.web.app,https://${PROJECT_ID}.firebaseapp.com}"
-SERVICE_ACCOUNT="${SERVICE_ACCOUNT:-}"             # optional runtime service account
+CORS_ORIGINS="${CORS_ORIGINS:-https://${FIREBASE_PROJECT}.web.app,https://${FIREBASE_PROJECT}.firebaseapp.com}"
+SERVICE_ACCOUNT="${SERVICE_ACCOUNT-holdshort-run@${PROJECT_ID}.iam.gserviceaccount.com}"  # runtime service account; SERVICE_ACCOUNT= to use the default
 VPC_FLAGS="${VPC_FLAGS:-}"                         # optional, e.g. "--network=default --subnet=default --vpc-egress=all-traffic"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -53,11 +55,13 @@ EXTRA=($VPC_FLAGS)
 # gcloud's --set-env-vars splits on commas; use a custom delimiter because CORS_ORIGINS has commas.
 ENV_VARS="^@^MONGODB_DB=${MONGODB_DB}@VOICE_ENABLED=${VOICE_ENABLED}@CORS_ORIGINS=${CORS_ORIGINS}"
 
-# --- images ---------------------------------------------------------------------------------
-run $DOCKER build -f "$ROOT/deploy/backend.Dockerfile" -t "$TOWER_IMAGE" "$ROOT"
-run $DOCKER push "$TOWER_IMAGE"
-run $DOCKER build -f "$ROOT/deploy/viz-api.Dockerfile" -t "$VIZ_IMAGE" "$ROOT"
-run $DOCKER push "$VIZ_IMAGE"
+# --- images (SKIP_BUILD=1 when they were built with deploy/cloudbuild.yaml) ---------------------
+if [ "${SKIP_BUILD:-0}" != 1 ]; then
+  run $DOCKER build -f "$ROOT/deploy/backend.Dockerfile" -t "$TOWER_IMAGE" "$ROOT"
+  run $DOCKER push "$TOWER_IMAGE"
+  run $DOCKER build -f "$ROOT/deploy/viz-api.Dockerfile" -t "$VIZ_IMAGE" "$ROOT"
+  run $DOCKER push "$VIZ_IMAGE"
+fi
 
 # --- tower: always-on workers + WebSockets -> one warm instance, CPU always allocated --------
 run gcloud run deploy holdshort-tower \

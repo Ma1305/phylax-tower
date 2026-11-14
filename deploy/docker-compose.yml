@@ -7,6 +7,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/backend.Dockerfile
+      network: host   # the default bridge has no outbound access on some hosts
     image: holdshort-tower:local
     env_file: ../.env
     environment:
@@ -25,6 +26,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/viz-api.Dockerfile
+      network: host   # the default bridge has no outbound access on some hosts
     image: holdshort-viz-api:local
     env_file: ../.env
     environment:
@@ -43,6 +45,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/viz-web.Dockerfile
+      network: host   # the default bridge has no outbound access on some hosts
       args:
         # The browser calls these directly, so they are host URLs, not service names.
         VITE_VIZ_API: ${VITE_VIZ_API:-http://localhost:8100}
