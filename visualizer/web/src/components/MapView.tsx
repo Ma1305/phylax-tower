@@ -59,6 +59,32 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
   const [zoom, setZoom] = useState<Zoom>('airfield');
   const [help, setHelp] = useState(false);
   const [layers, setLayers] = useState({ labels: true, tags: true, final: true });
+  const [view2, setView2] = useState({ k: 1, ox: 0, oy: 0 }); // user zoom and pan on top of the fitted view
+  const [auto, setAuto] = useState(true);
+  const [sel, setSel] = useState<string | null>(null);
+  const [hover, setHover] = useState<string | null>(null);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const viewRef = useRef(view2);
+  viewRef.current = view2;
+  const tween = useRef(0);
+  const saved = useRef<{ k: number; ox: number; oy: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const animateTo = (to: { k: number; ox: number; oy: number }) => {
+    cancelAnimationFrame(tween.current);
+    const from = viewRef.current;
+    const t0 = performance.now();
+    const step = (ts: number) => {
+      const f = Math.min(1, (ts - t0) / 450);
+      const e = f * (2 - f);
+      setView2({ k: from.k + (to.k - from.k) * e, ox: from.ox + (to.ox - from.ox) * e, oy: from.oy + (to.oy - from.oy) * e });
+      if (f < 1) tween.current = requestAnimationFrame(step);
+    };
+    tween.current = requestAnimationFrame(step);
+  };
+  const userMoved = () => {
+    cancelAnimationFrame(tween.current);
+    saved.current = null; // the user took over: no automatic return
+  };
 
   useEffect(() => {
     const el = ref.current;
@@ -147,11 +173,12 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
   }, [world]);
 
   const view = zoom === 'airfield' ? geom.airfield : geom.approach;
-  const scale = Math.min(size.w / (view.x1 - view.x0), Math.max(120, size.h - 72) / (view.y1 - view.y0));
+  const fit = Math.min(size.w / (view.x1 - view.x0), Math.max(120, size.h - 72) / (view.y1 - view.y0));
+  const scale = fit * view2.k;
   const cx = (view.x0 + view.x1) / 2;
   const cy = (view.y0 + view.y1) / 2;
-  const tx = size.w / 2 - cx * scale;
-  const ty = size.h / 2 + 30 - cy * scale;
+  const tx = size.w / 2 - cx * scale + view2.ox;
+  const ty = size.h / 2 + 30 - cy * scale + view2.oy;
   const mpx = (m: XY): XY => [m[0] * scale + tx, m[1] * scale + ty];
   const px = (lonLat: number[]): XY => mpx(geom.proj.toM(lonLat));
   const far = zoom === 'approach';
@@ -170,6 +197,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
   // label placement: nothing may sit on the situation chip, the toolbar or another label
   const placed: Rect[] = [
     [0, 0, 330, 52],
+    [size.w - 520, 0, size.w, 44],
     [size.w - 340, 0, size.w, 124],
     [size.w - 190, size.h - 48, size.w, size.h],
   ];
@@ -178,6 +206,29 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
     placed.push(pick);
     return pick;
   };
+
+  const zoomBy = (factor: number, at?: XY) => {
+    userMoved();
+    const v = viewRef.current;
+    const k = Math.max(0.6, Math.min(12, v.k * factor));
+    const ax = (at?.[0] ?? size.w / 2) - size.w / 2;
+    const ay = (at?.[1] ?? size.h / 2 + 30) - size.h / 2 - 30;
+    setView2({ k, ox: ax - ((ax - v.ox) * k) / v.k, oy: ay - ((ay - v.oy) * k) / v.k });
+  };
+  /** Frame a set of points (metres) with padding. */
+  const frame = (points: XY[], pad: number) => {
+    const xs = points.map((q) => q[0]);
+    const ys = points.map((q) => q[1]);
+    const bw = Math.max(...xs) - Math.min(...xs) + pad * 2;
+    const bh = Math.max(...ys) - Math.min(...ys) + pad * 2;
+    const k = Math.max(1, Math.min(8, Math.min(size.w / bw, (size.h - 140) / bh) / fit));
+    const mx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const my = (Math.max(...ys) + Math.min(...ys)) / 2;
+    return { k, ox: -(mx - cx) * fit * k, oy: -(my - cy) * fit * k };
+  };
+  // symbols are obstacles for every label, so lane tags settle away from the traffic
+  const objPx = objects.map((o) => px(o.position.coordinates));
+  for (const q of objPx) if (q[0] > 0 && q[0] < size.w && q[1] > 0 && q[1] < size.h) placed.push([q[0] - 9, q[1] - 9, q[0] + 9, q[1] + 9]);
 
   // ---- pixel-space labels for the lanes ----
   const laneLabels: JSX.Element[] = [];
@@ -302,6 +353,114 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
     }
   }
 
+  // ---- auto-focus: frame the conflict (or the stop's targets) when it begins, return 10 s after it clears ----
+  const involved = objects.filter((o) => o.status !== 'airborne' && (flagged.has(o.callsign ?? o._id) || (!!cl && o.lane_id === cl._id)));
+  const focusPts: XY[] = [...involved.map((o) => geom.proj.toM(o.position.coordinates)), ...(conflict ? [[(conflict.p[0] - tx) / scale, (conflict.p[1] - ty) / scale] as XY] : [])];
+  const focusKey = cl || flagged.size > 0 ? (focusPts.length ? 'on' : '') : '';
+  const focusRef = useRef<() => void>(() => undefined);
+  focusRef.current = () => {
+    if (!focusPts.length) return;
+    if (!saved.current) saved.current = viewRef.current;
+    animateTo(frame(focusPts, 320));
+  };
+  useEffect(() => {
+    if (!auto) return;
+    if (focusKey) {
+      focusRef.current();
+      return;
+    }
+    if (!saved.current) return;
+    const id = window.setTimeout(() => {
+      if (saved.current) animateTo(saved.current);
+      saved.current = null;
+    }, 10_000);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey, auto]);
+  useEffect(() => {
+    const h = () => {
+      saved.current = saved.current ?? viewRef.current;
+      focusRef.current();
+    };
+    window.addEventListener('phylax:focus-conflict', h);
+    return () => window.removeEventListener('phylax:focus-conflict', h);
+  }, []);
+
+  // ---- object tags: who gets a full tag, groups of vehicles, and a layout where nothing overlaps ----
+  const nameOf = (o: ObjectDoc) => o.callsign ?? (o.kind === 'person' ? 'Person' : o.kind === 'unknown' ? 'Unknown' : (o.label ?? o._id));
+  const isAlert = (o: ObjectDoc) => flagged.has(o.callsign ?? o._id) || (!!o.lane_id && stateOf(o.lane_id) === 'conflict');
+  const subOf = (o: ObjectDoc): string => {
+    const lane = laneOf(o.lane_id);
+    const spd = o.speed_kt != null ? Math.round(o.speed_kt) : null;
+    const des = lane ? (lane.kind === 'runway' ? lane.designators.join('/') : lane.designators[0]) : '';
+    const hot = flagged.has(o.callsign ?? o._id);
+    if (o.status === 'airborne') {
+      const alt = o.alt_ft != null ? Math.round(o.alt_ft / 10) * 10 : null;
+      return `${o.kind === 'aircraft' && (alt ?? 9999) <= 3000 ? 'final · ' : ''}${alt ?? '---'} ft · ${spd ?? '---'} kt`;
+    }
+    if (o.hold_short) return `${hot || (o.kind === 'vehicle' && (spd ?? 0) < 1) ? 'STOPPED' : 'holding'} · hold ${des}`;
+    if (hot && (spd ?? 0) < 1) return `STOPPED${des ? ` · ${lane?.kind === 'runway' ? 'rwy ' : ''}${des}` : ''}`;
+    if (o.kind === 'aircraft' && lane?.kind === 'runway' && (spd ?? 0) > 40) return `landing roll · ${spd} kt`;
+    if ((spd ?? 0) >= 1) return `${o.kind === 'aircraft' ? 'taxi' : o.kind === 'person' ? 'on foot' : 'moving'} · ${spd} kt`;
+    if (o.kind === 'person') return 'on foot';
+    return lane?.kind === 'runway' ? `on rwy ${des}` : des ? `on ${des}` : '';
+  };
+  // vehicles within 40 m of each other travel as one group
+  const groupOf = new Map<string, string>();
+  const members = new Map<string, ObjectDoc[]>();
+  {
+    const veh = objects.filter((o) => o.kind === 'vehicle' && o.status !== 'airborne' && !isAlert(o)).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+    for (const v of veh) {
+      if (groupOf.has(v._id)) continue;
+      const q = [v];
+      groupOf.set(v._id, v._id);
+      for (let i = 0; i < q.length; i++)
+        for (const w of veh) if (!groupOf.has(w._id) && distM(q[i].position.coordinates, w.position.coordinates) <= 40) (groupOf.set(w._id, v._id), q.push(w));
+      if (q.length > 1) members.set(v._id, q);
+      else groupOf.delete(v._id);
+    }
+  }
+  const onScreen = (q: XY) => q[0] >= 0 && q[0] <= size.w && q[1] >= 0 && q[1] <= size.h;
+  type Tag = { box: Rect; name: string; sub: string; group?: string };
+  const tags = new Map<string, Tag>();
+  const minis = new Map<string, { x: number; y: number; end: boolean }>();
+  const tryTag = (o: ObjectDoc, q: XY, name: string, sub: string, group?: string): boolean => {
+    const tw = Math.max(name.length, sub.length) * 7.3 + 15;
+    const th = sub ? 34 : 20;
+    for (const g of [18, 46, 80, 118, 160])
+      for (const [dx, dy] of [[g, -th - 6], [g, 6], [-g - tw, -th - 6], [-g - tw, 6], [-tw / 2, -th - g - 4], [-tw / 2, g + 4], [g, -th / 2], [-g - tw, -th / 2]]) {
+        const r: Rect = [q[0] + dx, q[1] + dy, q[0] + dx + tw, q[1] + dy + th];
+        if (r[0] < 4 || r[2] > size.w - 4 || r[1] < 4 || r[3] > size.h - 4 || hit(r, placed)) continue;
+        placed.push(r);
+        tags.set(o._id, { box: r, name, sub, group });
+        return true;
+      }
+    return false;
+  };
+  const rank = (o: ObjectDoc) => (isAlert(o) ? 0 : o._id === sel || o._id === hover ? 1 : o.kind === 'aircraft' ? 2 : 3);
+  const ordered = objects.map((o, i) => ({ o, q: objPx[i] })).filter((x) => onScreen(x.q)).sort((a, b) => rank(a.o) - rank(b.o));
+  for (const { o, q } of ordered) {
+    const g = groupOf.get(o._id);
+    const collapsed = g && openGroup !== g;
+    if (collapsed) {
+      const m = members.get(g)!;
+      if (g === o._id) tryTag(o, q, `${nameOf(o)} +${m.length - 1} vehicle${m.length > 2 ? 's' : ''}`, 'group · click to expand', g);
+      continue;
+    }
+    const full = rank(o) < 3 || !!g;
+    if ((far && o.status !== 'airborne' && !isAlert(o)) || (full && tryTag(o, q, nameOf(o), subOf(o), g))) continue;
+    // a tiny callsign beside the symbol, when there is room
+    const name = nameOf(o);
+    const w = name.length * 6.1 + 4;
+    for (const [dx, dy, end] of [[9, 3, 0], [-9, 3, 1], [9, -8, 0], [-9, -8, 1], [9, 14, 0], [-9, 14, 1]] as [number, number, number][]) {
+      const r: Rect = end ? [q[0] + dx - w, q[1] + dy - 9, q[0] + dx, q[1] + dy + 3] : [q[0] + dx, q[1] + dy - 9, q[0] + dx + w, q[1] + dy + 3];
+      if (hit(r, placed)) continue;
+      placed.push(r);
+      minis.set(o._id, { x: dx, y: dy, end: !!end });
+      break;
+    }
+  }
+
   // ---- inbound chip ----
   const inbound = objects
     .filter((o) => o.status === 'airborne' && o.kind === 'aircraft')
@@ -323,7 +482,36 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
 
   return (
     <div className={`map ${layers.labels ? '' : 'no-labels'} ${layers.tags ? '' : 'no-tags'} ${layers.final ? '' : 'no-final'}`} ref={ref}>
-      <svg width={size.w} height={size.h} role="img" aria-label="Airfield map">
+      <svg
+        width={size.w}
+        height={size.h}
+        role="img"
+        aria-label="Airfield map"
+        className={drag.current ? 'dragging' : ''}
+        onWheel={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), [e.clientX - r.left, e.clientY - r.top]);
+        }}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          drag.current = { x: e.clientX, y: e.clientY, ox: view2.ox, oy: view2.oy, moved: false };
+        }}
+        onPointerMove={(e) => {
+          const d = drag.current;
+          if (!d || !(e.buttons & 1)) return;
+          if (!d.moved && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 4) return;
+          if (!d.moved) {
+            d.moved = true;
+            userMoved();
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }
+          setView2({ k: viewRef.current.k, ox: d.ox + e.clientX - d.x, oy: d.oy + e.clientY - d.y });
+        }}
+        onPointerUp={() => {
+          drag.current = null;
+        }}
+        onClick={() => setSel(null)}
+      >
         <defs>
           <pattern id="m-wave" width="64" height="30" patternUnits="userSpaceOnUse">
             <path d="M0 15q8-5.5 16 0t16 0" fill="none" stroke="#2b4755" strokeWidth="1.2" />
@@ -550,53 +738,55 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
               </g>
             );
           }
-          const spd = o.speed_kt != null ? Math.round(o.speed_kt) : null;
-          const des = lane ? (lane.kind === 'runway' ? lane.designators.join('/') : lane.designators[0]) : '';
-          const sub = air
-            ? `${o.alt_ft != null ? Math.round(o.alt_ft / 10) * 10 : '---'} ft · ${spd ?? '---'} kt`
-            : o.hold_short
-              ? `${hot ? 'STOPPED' : 'holding'} · hold ${des}`
-              : hot && (spd ?? 0) < 1
-                ? `STOPPED${des ? ` · ${lane?.kind === 'runway' ? 'rwy ' : ''}${des}` : ''}`
-                : (spd ?? 0) >= 1
-                  ? `${o.kind === 'aircraft' ? 'taxi' : o.kind === 'person' ? 'on foot' : 'moving'} · ${spd} kt`
-                  : o.kind === 'person'
-                    ? 'on foot'
-                    : lane?.kind === 'runway'
-                      ? `on rwy ${des}`
-                      : des
-                        ? `on ${des}`
-                        : '';
-          const showLabel = !far || air || alert;
-          const tw = Math.max(name.length, sub.length) * 7.3 + 15;
-          const th = sub ? 34 : 20;
-          let box: Rect | null = null;
-          if (showLabel) {
-            const cands: Rect[] = [];
-            for (const [dx, dy] of [[20, -th - 8], [20, 10], [-20 - tw, -th - 8], [-20 - tw, 10], [26, -th - 44], [26, 46], [-26 - tw, -th - 44], [-26 - tw, 46], [-tw / 2, -th - 60], [-tw / 2, 62]])
-              cands.push([p[0] + dx, p[1] + dy, p[0] + dx + tw, p[1] + dy + th]);
-            box = place(cands);
-          }
-          const bx = box ? box[0] - p[0] : 0;
-          const by = box ? box[1] - p[1] : 0;
+          const tag = tags.get(o._id);
+          const mini = minis.get(o._id);
+          const bx = tag ? tag.box[0] - p[0] : 0;
+          const by = tag ? tag.box[1] - p[1] : 0;
+          const tw = tag ? tag.box[2] - tag.box[0] : 0;
+          const th = tag ? tag.box[3] - tag.box[1] : 0;
+          const grp = groupOf.get(o._id);
           return (
-            <g key={o._id} data-id={o._id} className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth ? 'smooth' : ''} ${alert ? 'hot' : ''}`} style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}>
-              <title>{`${name} · ${o.kind} · ${o.status}${o.lane_id ? ' · on ' + o.lane_id : ''}`}</title>
-              {box && <line x1={0} y1={0} x2={bx < 0 ? bx + tw : bx} y2={by < 0 ? by + th : by} className="leader" />}
+            <g
+              key={o._id}
+              data-id={o._id}
+              className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth && !tween.current ? 'smooth' : ''} ${alert ? 'hot' : ''} ${sel === o._id ? 'sel' : ''}`}
+              style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}
+              onMouseEnter={() => setHover(o._id)}
+              onMouseLeave={() => setHover((h) => (h === o._id ? null : h))}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (grp) setOpenGroup(openGroup === grp ? null : grp);
+                else setSel(sel === o._id ? null : o._id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                userMoved();
+                const m = geom.proj.toM(o.position.coordinates);
+                animateTo({ k: Math.max(view2.k, 2.5), ox: -(m[0] - cx) * fit * Math.max(view2.k, 2.5), oy: -(m[1] - cy) * fit * Math.max(view2.k, 2.5) });
+              }}
+            >
+              <title>{`${name} · ${subOf(o) || o.kind}${o.lane_id ? ' · on ' + o.lane_id : ''}`}</title>
+              <circle r={11} className="hit" />
+              {tag && <line x1={0} y1={0} x2={Math.max(bx, Math.min(0, bx + tw))} y2={Math.max(by, Math.min(0, by + th))} className="leader" />}
               {hot && <circle r={o.kind === 'aircraft' ? 17 : 12} className="obj-ring" />}
               <ObjGlyph o={o} small={far} />
-              {box && (
-                <g transform={`translate(${bx},${by})`} className="obj-label">
+              {tag && (
+                <g transform={`translate(${bx},${by})`} className={`obj-label ${tag.group && openGroup !== tag.group ? 'group' : ''}`} data-tag={o._id}>
                   <rect width={tw} height={th} rx={3} className="tag-box" />
                   <text x={7} y={14} className="obj-name">
-                    {name}
+                    {tag.name}
                   </text>
-                  {sub && (
+                  {tag.sub && (
                     <text x={7} y={28} className="obj-data">
-                      {sub}
+                      {tag.sub}
                     </text>
                   )}
                 </g>
+              )}
+              {!tag && mini && (
+                <text x={mini.x} y={mini.y} textAnchor={mini.end ? 'end' : 'start'} className="obj-mini obj-label" data-mini={o._id}>
+                  {name}
+                </text>
               )}
             </g>
           );
@@ -627,6 +817,26 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             Approach
           </button>
         </div>
+        <div className="seg small" role="group" aria-label="Zoom">
+          <button onClick={() => zoomBy(1 / 1.4)} aria-label="Zoom out" title="Zoom out">
+            −
+          </button>
+          <button onClick={() => zoomBy(1.4)} aria-label="Zoom in" title="Zoom in">
+            +
+          </button>
+          <button
+            onClick={() => {
+              userMoved();
+              animateTo({ k: 1, ox: 0, oy: 0 });
+            }}
+            title="Fit the whole field"
+          >
+            Fit
+          </button>
+        </div>
+        <button className={`menu-btn auto ${auto ? 'on' : ''}`} role="switch" aria-checked={auto} onClick={() => setAuto(!auto)} title="When a conflict or stop begins, frame it; return 10 s after it clears">
+          <i className="dot" /> Auto-focus
+        </button>
         <button className="menu-btn" aria-expanded={help} onClick={() => setHelp(!help)}>
           Layers / legend
           <svg width="8" height="5" viewBox="0 0 8 5" aria-hidden>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapView } from './components/MapView';
+import { Menu } from './components/Menu';
 import { Requests } from './components/Requests';
 import { agentSummary, AgentSettings } from './components/AgentPills';
 import { useStored } from './collapse';
@@ -446,23 +447,23 @@ export default function App() {
             </span>
           </div>
         </div>
-        <div className="seg" role="group" aria-label="View as">
-          <span className="seg-cap">View as</span>
-          <button className={controller === 'all' ? 'on' : ''} onClick={() => setController('all')}>
-            All
-          </button>
-          {world.controllers.map((c) => {
-            const n = (snap?.pending ?? []).filter((d) => d.controller_id === c._id).length;
-            const st = stopsAll.filter((d) => d.controller_id === c._id).length;
-            return (
-              <button key={c._id} className={controller === c._id ? 'on' : ''} aria-pressed={controller === c._id} onClick={() => setController(c._id)} title={`View and act as ${c.name} (key ${world.controllers.indexOf(c) + 2})`}>
-                {c.name}
-                {st > 0 && <i className="dotc is-stop" title={`${st} stop in effect`} />}
-                {n > 0 && <i className="dotc is-warn" title={`${n} waiting for approval`} />}
-              </button>
-            );
-          })}
-        </div>
+        <Menu
+          label="View as"
+          prefix="View as:"
+          left
+          value={controller}
+          onChange={setController}
+          options={[
+            { value: 'all', label: 'All controllers', detail: 'Every lane and stream · choose who to act as in Needs you', badge: (snap?.pending.length ?? 0) + stopsAll.length, badgeTone: stopsAll.length ? ('stop' as const) : ('warn' as const) },
+            ...world.controllers.map((c) => {
+              const st = stopsAll.filter((d) => d.controller_id === c._id).length;
+              const n = (snap?.pending ?? []).filter((d) => d.controller_id === c._id).length;
+              const lanesTxt = c.lanes.map((id) => world.lanes.find((l) => l._id === id)).map((l) => (l ? (l.kind === 'runway' ? `RWY ${l.designators.join('/')}` : l.kind === 'taxiway' ? `TWY ${l.designators[0]}` : 'Apron') : '')).filter(Boolean).join(', ');
+              const streamsTxt = world.streams.filter((x) => c.streams.includes(x._id) || x.controller_id === c._id).map((x) => x.name).join(', ');
+              return { value: c._id, label: c.name, detail: c.role === 'supervisor' ? 'Supervisor · sees and may act on everything' : `${c.role[0].toUpperCase() + c.role.slice(1)} · ${lanesTxt || 'no lanes'} · ${streamsTxt || 'no streams'}`, badge: st + n, badgeTone: st ? ('stop' as const) : ('warn' as const) };
+            }),
+          ]}
+        />
         <div className="clock-block" title={wx ? `wind ${wx.wind ?? '---'} · visibility ${wx.visibility_sm ?? '--'} SM` : undefined}>
           <span className="clock mono">{hhmmss(viewT)}</span>
           {live ? (
