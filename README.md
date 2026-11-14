@@ -37,8 +37,14 @@ Checks:
 
 ```bash
 uv run pytest -q && uv run ruff check .
-scripts/e2e_check.sh     # throwaway db + free port: incident, normal, reactive; PASS/FAIL per assertion
+scripts/e2e_check.sh     # throwaway db + free port: autonomous, needs_approval, reactive runs
+uv run python scripts/voice_proof.py   # real ElevenLabs STT + TTS once (4 calls, needs VOICE_ENABLED)
 ```
+
+Stops are autonomous by default (safety proactive / autonomous): a critical stop executes and
+is spoken at once and is routed to the lane's controller, who can lift it (`/control/revoke`).
+Proposed instructions and lane closures always wait for that controller.
+`GET /control/decisions` is the decision log, newest first, each with its intent.
 
 ## Contracts
 
@@ -55,6 +61,10 @@ scripts/e2e_check.sh     # throwaway db + free port: incident, normal, reactive;
 | How do you record what it did, why, and under whose authority? | Insert-only `decisions` carry `rule`, `authorized_by`, `controller_id`, `approved_by`; every blocked attempt (wrong controller, denied read, validator rejection) lands in `security_events`; every switch, lane and rule-set change in `state_events`. Transmissions are never deleted. |
 | How do you stop or roll back an agent mid-run? | Per-agent and master switches, mode (`reactive` = warn only) and tier take effect on the next intent (`POST /control/permissions/{agent}`); `POST /control/revoke` inserts a new decision pointing at the old one. |
 
-`scripts/e2e_check.sh` exercises all three: a stop routed to the runway's controller, a 403
-plus a security event when the ground controller tries to approve it, the spoken stop that
-holds the truck short, and the same incident with safety set to reactive giving only an advisory.
+`scripts/e2e_check.sh` exercises all three: an autonomous stop executed and spoken within 3 s
+of the conflict, routed to the runway's controller, holding the truck short; the resume
+proposal waiting for that controller (a 403 plus a security event when the ground controller
+tries to approve it); the same incident with tier needs_approval (the stop waits for the
+controller) and with safety reactive (only an advisory). After each run it audits the decision
+log: one decision per intent plus one per approval / rejection / revocation, and no outbound
+call without an executed decision.

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -18,6 +19,22 @@ from holdshort.env import redact
 API = "https://api.elevenlabs.io/v1"
 STT_MODEL = os.environ.get("ELEVENLABS_STT_MODEL", "").strip() or "scribe_v1"
 TIMEOUT_S = 120
+# ElevenLabs audio-isolation rejects shorter clips (HTTP 400 audio_too_short); most radio
+# calls are shorter, so those go straight to speech-to-text without a wasted call.
+ISOLATION_MIN_S = 4.6
+_MIME = {".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".flac": "audio/flac",
+         ".m4a": "audio/mp4"}
+
+
+def duration_s(path: str | Path) -> float | None:
+    """Clip length from ffprobe, or None when it cannot be measured."""
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                            "-of", "default=nw=1:nk=1", str(path)],
+                           capture_output=True, text=True, timeout=10, check=False)
+        return float(r.stdout.strip())
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
 
 
 def voice_enabled() -> bool:
@@ -39,12 +56,15 @@ def clean(path: str | Path) -> Path:
     path = Path(path)
     if not voice_enabled():
         return path
+    dur = duration_s(path)
+    if dur is not None and dur < ISOLATION_MIN_S:
+        return path  # too short for the isolation endpoint: passthrough
     try:
         with path.open("rb") as f:
             r = requests.post(
                 f"{API}/audio-isolation",
                 headers={"xi-api-key": _key()},
-                files={"audio": (path.name, f, "audio/wav")},
+                files={"audio": (path.name, f, _MIME.get(path.suffix.lower(), "audio/wav"))},
                 timeout=TIMEOUT_S,
             )
         if r.status_code != 200 or not r.content:

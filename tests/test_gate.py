@@ -270,3 +270,27 @@ def test_api_reject(api, db):
     r = api.post("/control/reject", json={"decision_id": str(d["_id"]),
                                           "controller_id": "ctl_local", "reason": "no"})
     assert r.status_code == 200 and r.json()["rule"] == "controller_rejected"
+
+
+def test_api_decision_log(api, db):
+    gate.set_permission(db, "safety", "ctl_sup", tier="autonomous")
+    t0 = datetime.now(UTC)
+    stop = gate.decide(db, "safety", db.intents_safety.find_one({"_id": _intent(db)}))
+    prop = gate.decide(db, "procedures", db.intents_procedures.find_one(
+        {"_id": _intent(db, agent="procedures", action="propose_instruction")}))
+    assert (stop["outcome"], stop["rule"], stop["controller_id"]) == (
+        "executed", "tier_autonomous", "ctl_local")
+    gate.approve(db, prop["_id"], "ctl_local")
+    gate.revoke(db, stop["_id"], "ctl_local")
+    r = api.get("/control/decisions", params={"tower_id": "LGA", "since": t0.isoformat()})
+    assert r.status_code == 200
+    docs = r.json()["decisions"]
+    assert [d["rule"] for d in docs] == ["controller_revoked", "controller_approved",
+                                         "needs_approval", "tier_autonomous"]
+    assert all(d["intent"]["_id"] == d["intent_id"] for d in docs)
+    assert docs[-1]["intent"]["reason"] == "runway_incursion"
+    r = api.get("/control/decisions", params={"controller_id": "ctl_ground",
+                                              "since": t0.isoformat()})
+    assert r.json()["decisions"] == []
+    assert len(api.get("/control/decisions", params={"limit": 1}).json()["decisions"]) == 1
+    assert api.get("/control/decisions", params={"limit": 0}).status_code == 422

@@ -197,3 +197,42 @@ def test_stream_agent_bad_token_falls_back(test_db):
     a.stop()
     th.join(10)
     assert not a.resumed
+
+
+def test_setup_migrates_untouched_stop_tier(test_db):
+    """Stops are autonomous by default: setup moves a seeded, never-changed safety permission
+    from needs_approval to autonomous (with a state event) and keeps a controller's choice."""
+    import setup_atlas
+
+    assert setup_atlas.PERMISSION_SEED["safety"]["tier"] == "autonomous"
+    try:
+        for by in ("setup", "setup_script"):
+            test_db.permissions.update_one({"_id": "safety"},
+                                           {"$set": {"tier": "needs_approval", "by": by}})
+            before = test_db.state_events.count_documents({"kind": "permission", "ref": "safety"})
+            lines: list[str] = []
+            setup_atlas.setup(test_db, log=lines.append)
+            perm = test_db.permissions.find_one({"_id": "safety"})
+            assert (perm["tier"], perm["by"]) == ("autonomous", "setup_script")
+            ev = test_db.state_events.find_one({"kind": "permission", "ref": "safety"},
+                                               sort=[("t", -1), ("_id", -1)])
+            assert test_db.state_events.count_documents(
+                {"kind": "permission", "ref": "safety"}) == before + 1
+            assert ev["doc"]["tier"] == "autonomous" and ev["by"] == "setup_script"
+            assert any("needs_approval -> autonomous" in x for x in lines)
+        test_db.permissions.update_one({"_id": "safety"},
+                                       {"$set": {"tier": "needs_approval", "by": "ctl_sup"}})
+        setup_atlas.setup(test_db, log=lambda *_: None)
+        assert test_db.permissions.find_one({"_id": "safety"})["tier"] == "needs_approval"
+    finally:
+        test_db.permissions.update_one({"_id": "safety"},
+                                       {"$set": {"tier": "autonomous", "by": "setup_script"}})
+
+
+def test_listener_reads_gridfs_audio(test_db):
+    import gridfs
+
+    fid = gridfs.GridFSBucket(test_db, bucket_name="audio").upload_from_stream("t", b"abc")
+    s = scoped_db(test_db, "listener")
+    assert s["audio.files"].find_one({"_id": fid})["length"] == 3
+    assert s["audio.chunks"].find_one({"files_id": fid}) is not None

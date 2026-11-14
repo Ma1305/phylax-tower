@@ -84,16 +84,7 @@ def open_pending(db: Database, controller_id: str | None = None) -> list[dict]:
     ):
         closed.add(d["revokes"] if d.get("revokes") else d["intent_id"])
     out = [p for p in pending if p["_id"] not in closed and p["intent_id"] not in closed]
-    by_agent: dict[str, list[ObjectId]] = {}
-    for p in out:
-        by_agent.setdefault(p["agent"], []).append(p["intent_id"])
-    intents: dict[ObjectId, dict] = {}
-    for agent, iids in by_agent.items():
-        for i in db[f"intents_{agent}"].find({"_id": {"$in": iids}}):
-            intents[i["_id"]] = i
-    for p in out:
-        p["intent"] = intents.get(p["intent_id"])
-    return out
+    return _merge_intents(db, out)
 
 
 @router.get("/pending")
@@ -103,6 +94,34 @@ def pending(controller_id: Annotated[str, Query()], db: Db) -> dict:
         raise HTTPException(404, {"error": "not_found", "detail": f"unknown {controller_id}"})
     scope = None if ctl.get("role") == "supervisor" else controller_id
     return {"pending": jsonable(open_pending(db, scope))}
+
+
+def _merge_intents(db: Database, decisions: list[dict]) -> list[dict]:
+    by_agent: dict[str, list[ObjectId]] = {}
+    for d in decisions:
+        if d.get("agent") and d.get("intent_id"):
+            by_agent.setdefault(d["agent"], []).append(d["intent_id"])
+    intents: dict[ObjectId, dict] = {}
+    for agent, iids in by_agent.items():
+        for i in db[f"intents_{agent}"].find({"_id": {"$in": iids}}):
+            intents[i["_id"]] = i
+    for d in decisions:
+        d["intent"] = intents.get(d.get("intent_id"))
+    return decisions
+
+
+@router.get("/decisions")
+def decisions(db: Db, tower_id: str = "LGA", controller_id: str | None = None,
+              since: datetime | None = None,
+              limit: Annotated[int, Query(ge=1, le=1000)] = 100) -> dict:
+    """The decision log, newest first, each decision with its intent merged in as ``intent``."""
+    q: dict[str, Any] = {"tower_id": tower_id}
+    if controller_id:
+        q["controller_id"] = controller_id
+    if since is not None:
+        q["t"] = {"$gte": since if since.tzinfo else since.replace(tzinfo=UTC)}
+    docs = list(db.decisions.find(q).sort([("t", -1), ("_id", -1)]).limit(limit))
+    return {"decisions": jsonable(_merge_intents(db, docs))}
 
 
 @router.post("/approve")

@@ -213,7 +213,7 @@ _WRITE = {
     "system": [],
 }
 PERMISSION_SEED: dict[str, dict[str, Any]] = {
-    "safety": {"mode": "proactive", "tier": "needs_approval"},
+    "safety": {"mode": "proactive", "tier": "autonomous"},
     "procedures": {"mode": "proactive", "tier": "needs_approval"},
     "weather": {"mode": "proactive", "tier": "autonomous"},
     "listener": {"mode": "reactive", "tier": "autonomous"},
@@ -342,6 +342,28 @@ def _owner(controllers: list[dict], lane_id: str) -> str | None:
     return next((ctl["_id"] for ctl in controllers if ctl.get("role") == "supervisor"), None)
 
 
+SEED_BY = "setup_script"
+# `by` values that mean "only the setup script ever wrote this switch" ("setup" = older seed)
+_SEED_BYS = (SEED_BY, "setup")
+
+
+def _migrate_autonomous_stops(db: Database, now: datetime) -> list[str]:
+    """Stops are autonomous by default (product owner, 13:55). Move a seeded permission that
+    no controller has changed from needs_approval to its seed tier, with a state event."""
+    out = []
+    for agent, sw in PERMISSION_SEED.items():
+        if sw["tier"] != "autonomous":
+            continue
+        doc = db.permissions.find_one_and_update(
+            {"_id": agent, "tier": "needs_approval", "by": {"$in": list(_SEED_BYS)}},
+            {"$set": {"tier": "autonomous", "by": SEED_BY, "changed_at": now}},
+            return_document=True)
+        if doc is not None:
+            _state_event(db, "permission", agent, doc, SEED_BY, now)
+            out.append(agent)
+    return out
+
+
 def setup(db: Database, log=print, reset_live: bool = False,
           tower_id: str = c.TOWER_ID) -> None:
     """Create/update every collection, validator, index and seed document in `db`."""
@@ -360,13 +382,17 @@ def setup(db: Database, log=print, reset_live: bool = False,
             {"_id": agent},
             {"$set": {"agent": agent, "read": _READ[agent], "write": _WRITE[agent]},
              "$setOnInsert": {"enabled": True, "mode": sw["mode"], "tier": sw["tier"],
-                              "by": "setup", "changed_at": now}},
+                              "by": SEED_BY, "changed_at": now}},
             upsert=True)
         if res.upserted_id is not None:
             new += 1
             _state_event(db, "permission", agent, db.permissions.find_one({"_id": agent}),
-                         "setup", now)
+                         SEED_BY, now)
     log(f"  permissions: {len(PERMISSION_SEED)} ({new} new; live switches kept)")
+    migrated = _migrate_autonomous_stops(db, now)
+    if migrated:
+        log(f"  permissions: {', '.join(migrated)} needs_approval -> autonomous "
+            "(seed default changed; no controller had changed it)")
 
     for rs in RULE_SETS:
         doc = c.to_mongo(c.RuleSet.model_validate(rs))
