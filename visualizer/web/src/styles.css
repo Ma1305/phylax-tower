@@ -384,3 +384,19 @@ dl.trail-meta dd { color: var(--text); overflow-wrap: anywhere; }
 .audit { flex: 1 1 200px; min-height: 130px; }
 .agent { padding: 3px 0; }
 @media (max-width: 1180px) { .audit { min-height: 0; } }
+
+/* ask the audit agent (GET /control/audit) */
+.askaudit { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; display: grid; gap: 6px; }
+.askaudit-row { display: flex; gap: 6px; margin-top: 3px; }
+.askaudit-row input { flex: 1; min-width: 0; background: var(--bg); color: inherit; border: 1px solid var(--line-2); border-radius: 5px; padding: 5px 8px; font: inherit; }
+.askaudit-narrative { margin: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.askaudit-timeline { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; display: grid; gap: 3px; }
+.askaudit-timeline li { display: grid; grid-template-columns: auto auto 1fr; gap: 6px; align-items: baseline; font-size: 11.5px; line-height: 1.35; padding: 2px 4px; border-left: 2px solid transparent; }
+.askaudit-timeline li.cited { border-left-color: var(--amber, #e0a030); background: rgba(224, 160, 48, 0.08); }
+.askaudit-sum { overflow-wrap: anywhere; }
+.faint { opacity: 0.55; }
+/* agent identity (agent_state.<process>.identity) */
+.agent { flex-wrap: wrap; }
+.agent .ident { flex: 1 0 100%; font: 10.5px/1.3 var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 42px; }
+.agent .ident::before { content: 'identity: '; }
+.agent .ident-generated { color: var(--green); }

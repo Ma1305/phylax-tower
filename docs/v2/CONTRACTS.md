@@ -263,7 +263,10 @@ GET /viz/bounds?tower_id=LGA
       -> {from, to}     earliest and latest t we hold
 GET /viz/snapshot?tower_id=LGA[&t=ISO][&controller_id=...]
       -> {t, live: bool, objects[], lane_status[], permissions[], weather|null,
-          pending[], decisions[] (last 50 up to t), transmissions[] (last 100 up to t)}
+          pending[], decisions[] (last 50 up to t), transmissions[] (last 100 up to t),
+          agent_state[] ({_id: process name, identity: {kind: generated|static|shared,
+          username, role, expires_at}, updated_at}; only processes that recorded one; always
+          the current value, also with t)}
       Without t: the current collections. With t: objects = the last position of each object
       in (t-30s, t]; lane_status and permissions = the last state_events document per ref up
       to t; pending = pending_approval decisions with no later decision for the same intent

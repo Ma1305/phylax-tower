@@ -29,6 +29,10 @@ uv run python tools/smoke_feed.py --api http://localhost:8000 --scenario inciden
 scripts/stop_v2.sh
 ```
 
+Everything at once, with the visualizer (tower 8000, visualizer API 8100, web app 5180):
+`scripts/run_all.sh`, then `scripts/feed.sh incident`, then `scripts/stop_all.sh`.
+[`TESTING.md`](TESTING.md) is the click-through: the tunnel, the URLs and what to expect.
+
 `python -m holdshort.serve` runs every process in one supervisor (`--only api,gate` for a
 subset); logs go to `logs/v2/serve.log`. Each worker can also run alone (`python -m
 holdshort.gate --db NAME`, ...).

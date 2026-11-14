@@ -433,7 +433,7 @@ export default function App() {
         </section>
         <div className="side">
           <Requests ds={ds} world={world} pending={snap?.pending ?? []} decisions={snap?.decisions ?? []} controller={controller} actAs={actAs} onActAs={setActAs} readOnly={!live} />
-          <Agents ds={ds} permissions={snap?.permissions ?? []} by={actor} readOnly={!live} />
+          <Agents ds={ds} permissions={snap?.permissions ?? []} agentState={snap?.agent_state ?? liveSnap?.agent_state ?? []} by={actor} readOnly={!live} />
         </div>
         <Streams
           world={world}

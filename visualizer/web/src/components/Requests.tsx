@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ApiError, type Controller, type DataSource, type Decision, type World } from '../types';
+import { ApiError, type AuditAnswer, type Controller, type DataSource, type Decision, type World } from '../types';
 import { hhmmss } from '../util';
 
 interface Props {
@@ -131,6 +131,7 @@ export function Requests({ ds, world, pending, decisions, controller, actAs, onA
               )}
             </article>
           ))}
+          <AuditBox ds={ds} ctlName={ctlName} />
         </div>
       </section>
 
@@ -193,4 +194,78 @@ function describe(d: Decision, settled: boolean, lifted: boolean) {
   if (stop && !d.approved_by)
     return { cls: 'stop', label: '■ STOP EXECUTED', note: lifted ? 'Later lifted by a controller.' : 'Autonomous: spoken at once, the controller was told.', byLabel: 'approved by', noBy: 'not needed (autonomous)' };
   return { cls: 'executed', label: '✓ EXECUTED', note: null, byLabel: 'approved by', noBy: 'not needed (autonomous)' };
+}
+
+/** "Ask the audit agent": GET /control/audit?q=... A read-only question, so it also works in history mode. */
+function AuditBox({ ds, ctlName }: { ds: DataSource; ctlName: (id: string | null | undefined) => string }) {
+  const [q, setQ] = useState('Why was TRUCK1 held?');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [ans, setAns] = useState<AuditAnswer | null>(null);
+  const ask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!q.trim() || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      setAns(await ds.audit(q.trim()));
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      const msg = err instanceof Error ? err.message : String(err);
+      setAns(null);
+      setError(status ? `${status} · ${msg}` : `Tower API not reachable: ${msg}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cited = new Set(ans?.cited ?? []);
+  return (
+    <div className="askaudit">
+      <form onSubmit={ask}>
+        <label className="cap" htmlFor="askaudit-q">
+          Ask the audit agent
+        </label>
+        <div className="askaudit-row">
+          <input id="askaudit-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Why was TRUCK1 held?" />
+          <button className="btn" disabled={busy || !q.trim()}>
+            {busy ? 'Asking…' : 'Ask'}
+          </button>
+        </div>
+      </form>
+      {error && (
+        <div className="req-error" role="alert">
+          {error}
+        </div>
+      )}
+      {ans && (
+        <div className="askaudit-answer">
+          <p className="askaudit-narrative">{ans.narrative}</p>
+          <span className="cap">
+            Timeline from the stored records · {ans.timeline.length} entries, {cited.size} cited{ans.source ? ` · answer by ${ans.source}` : ''}
+          </span>
+          {ans.timeline.length === 0 && <div className="empty">No record matches this question.</div>}
+          <ol className="askaudit-timeline">
+            {ans.timeline.map((it) => (
+              <li key={it.doc_id} className={cited.has(it.doc_id) ? 'cited' : ''} data-kind={it.kind} title={`${it.kind} ${it.doc_id}`}>
+                <span className="mono muted">{hhmmss(it.t)}</span>
+                <span className="badge">{cited.has(it.doc_id) ? '★ ' : ''}{it.kind}</span>
+                <span className="askaudit-sum">
+                  {it.summary}
+                  {(it.rule || it.authorized_by || it.approved_by) && (
+                    <span className="muted">
+                      {' '}
+                      · rule {it.rule ?? 'none'}
+                      {it.authorized_by ? ` · authorized by ${it.authorized_by.permission_id} / ${it.authorized_by.rule_set_version ?? 'no rule set'}` : ''}
+                      {it.approved_by ? ` · by ${ctlName(it.approved_by)}` : ''}
+                    </span>
+                  )}
+                  <span className="mono faint"> [{it.doc_id.slice(-6)}]</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
 }

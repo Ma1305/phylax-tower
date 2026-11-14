@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import type { AgentMode, DataSource, Permission, PermissionAgent, PermissionPatch, PermissionTier } from '../types';
+import type { AgentMode, AgentState, DataSource, Permission, PermissionAgent, PermissionPatch, PermissionTier } from '../types';
 
 interface Props {
   ds: DataSource;
   permissions: Permission[];
+  agentState?: AgentState[];
   by: string;
   readOnly: boolean;
 }
@@ -17,7 +18,20 @@ const AGENTS: { id: PermissionAgent; what: string }[] = [
 const TIERS: PermissionTier[] = ['needs_approval', 'autonomous', 'never'];
 const MODES: AgentMode[] = ['reactive', 'proactive'];
 
-export function Agents({ ds, permissions, by, readOnly }: Props) {
+/** How the agent's process is connected to Atlas (agent_state.<process>.identity). */
+function identityText(st: AgentState | undefined): { short: string; title: string } | null {
+  const id = st?.identity;
+  if (!id) return null;
+  if (id.kind === 'generated')
+    return {
+      short: `Atlas user ${id.username ?? '(unnamed)'}`,
+      title: `Generated Atlas database user ${id.username ?? ''}${id.role ? `, role ${id.role}` : ''}${id.expires_at ? `, expires ${id.expires_at}` : ''}. Created on demand from this agent's permission document.`,
+    };
+  if (id.kind === 'static') return { short: 'static Atlas user', title: "A fixed per-agent connection string (MONGODB_URI_<AGENT>)." };
+  return { short: 'shared connection', title: 'No per-agent Atlas user: this agent uses the shared connection string; its access lists are enforced by ScopedDb and the validators.' };
+}
+
+export function Agents({ ds, permissions, agentState = [], by, readOnly }: Props) {
   const [error, setError] = useState('');
   const get = (id: string) => permissions.find((p) => p._id === id || p.agent === id);
   const master = get('system');
@@ -45,6 +59,7 @@ export function Agents({ ds, permissions, by, readOnly }: Props) {
         {AGENTS.map(({ id, what }) => {
           const p = get(id);
           const off = !p?.enabled || !masterOn;
+          const ident = identityText(agentState.find((s) => s._id === `${id}_agent`) ?? agentState.find((s) => s._id === id));
           return (
             <div key={id} className={`agent ${off ? 'off' : ''}`}>
               <div className="agent-name">
@@ -67,6 +82,11 @@ export function Agents({ ds, permissions, by, readOnly }: Props) {
                   ))}
                 </select>
               </div>
+              {ident && (
+              <span className={`ident ident-${agentState.find((x) => x._id === `${id}_agent` || x._id === id)?.identity?.kind}`} data-agent={id} title={ident.title}>
+                {ident.short}
+              </span>
+            )}
             </div>
           );
         })}

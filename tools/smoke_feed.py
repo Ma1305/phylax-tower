@@ -353,7 +353,8 @@ class Feed:
                 ob = self.c.get("/ingest/outbound", params={"tower_id": TOWER_ID, "since": since})
                 if ob.status_code < 400:
                     body = ob.json()
-                    since = body.get("now") or since
+                    # keep polling from the run start: a call's t (when it was decided) can be
+                    # earlier than the "now" of the poll that ran while it was being spoken
                     for call in body.get("calls", []):
                         if call.get("action") != "stop":
                             continue

@@ -112,6 +112,33 @@ export interface Permission {
   changed_at?: string;
 }
 
+/** agent_state: which database identity a tower process connected with. */
+export interface AgentState {
+  _id: string; // process name: "safety_agent", "listener", ...
+  identity?: { kind: 'generated' | 'static' | 'shared'; username?: string | null; role?: string | null; expires_at?: string | null } | null;
+  updated_at?: string;
+}
+
+/** GET /control/audit?q=...: the audit agent's answer. */
+export interface AuditItem {
+  t: string;
+  kind: string;
+  actor: string | null;
+  summary: string;
+  lane_id?: string | null;
+  controller_id?: string | null;
+  rule?: string | null;
+  authorized_by?: { permission_id: string; rule_set_version: string | null } | null;
+  approved_by?: string | null;
+  doc_id: string;
+}
+export interface AuditAnswer {
+  narrative: string;
+  timeline: AuditItem[];
+  cited: string[];
+  source?: string;
+}
+
 export interface Transmission {
   _id: string;
   stream_id: string;
@@ -185,6 +212,7 @@ export interface Snapshot {
   objects: ObjectDoc[];
   lane_status: LaneStatus[];
   permissions: Permission[];
+  agent_state?: AgentState[];
   weather: Weather | null;
   pending: Decision[];
   decisions: Decision[];
@@ -260,4 +288,6 @@ export interface DataSource {
   /** Lift an executed stop. */
   revoke(decisionId: string, controllerId: string): Promise<void>;
   setPermission(agent: PermissionAgent, patch: PermissionPatch): Promise<void>;
+  /** Ask the tower's audit agent (GET /control/audit?q=). */
+  audit(q: string): Promise<AuditAnswer>;
 }

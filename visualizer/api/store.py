@@ -265,6 +265,10 @@ async def snapshot(
         db.transmissions.find(tq).sort("t", -1).limit(100).to_list(100),
         db.controllers.find_one({"_id": controller_id}) if controller_id else _none(),
     )
+    # which identity each tower process connected with (never a token, password or URI)
+    agent_state = await db.agent_state.find(
+        {"identity": {"$exists": True}}, {"identity": 1, "updated_at": 1}
+    ).to_list(50)
     decisions.reverse()
     transmissions.reverse()
     await attach_intents(db, decisions + pending)
@@ -285,6 +289,7 @@ async def snapshot(
         "objects": objects,
         "lane_status": lane_status,
         "permissions": permissions,
+        "agent_state": agent_state,
         "weather": weather,
         "pending": pending,
         "decisions": decisions,

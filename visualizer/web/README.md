@@ -9,6 +9,9 @@ tower's `/control/*` API. It never talks to the database.
   "Airfield" and "Approach · 7 nm" zooms, airborne list. Next to it: agent requests
   awaiting approval (Approve / Reject), the decision log (executed, pending, refused, rejected,
   lifted; each with rule, authorized_by and approved_by), agent switches and the master switch.
+  Under the requests: **Ask the audit agent** (the tower's `GET /control/audit?q=`): a narrative
+  with cited record ids and the timeline it was built from. Each agent switch shows the agent's
+  Atlas identity (generated user / static / shared connection) when `agent_state` has it.
 - **Top, only while a stop is in effect**: stops are autonomous by default, so an executed stop is
   an alert the owning controller is told about, not asked about: the exact call, rule, target,
   lane and a **Lift stop** action (`POST /control/revoke`). Hold Short's own outbound call is
@@ -38,7 +41,7 @@ Copy `.env.example` to `.env` (gitignored). Values are read at build time.
 | Variable | Default | Used for |
 |---|---|---|
 | `VITE_VIZ_API` | `http://localhost:8100` | `/viz/*`, `/viz/audio/{clip_id}` and the `/viz/live` WebSocket (connected directly) |
-| `VITE_TOWER_API` | `http://localhost:8000` | `POST /control/approve`, `/control/reject`, `/control/revoke`, `/control/permissions/{agent}` |
+| `VITE_TOWER_API` | `http://localhost:8000` | `POST /control/approve`, `/control/reject`, `/control/revoke`, `/control/permissions/{agent}`, `GET /control/audit` |
 
 ## Build
 

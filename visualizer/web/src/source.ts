@@ -11,7 +11,9 @@ async function fail(res: Response): Promise<never> {
   try {
     const body = await res.json();
     const d = body?.detail ?? body?.error ?? body?.message;
-    if (d) msg = typeof d === 'string' ? d : JSON.stringify(d);
+    // the tower answers {detail: {error: "not_lane_owner", detail: "..."}}
+    if (d && typeof d === 'object' && (d.error || d.detail)) msg = [d.error, d.detail].filter(Boolean).join(': ');
+    else if (d) msg = typeof d === 'string' ? d : JSON.stringify(d);
   } catch {
     /* keep the status text */
   }
@@ -76,6 +78,11 @@ function createHttpSource(): DataSource {
     reject: (decision_id, controller_id, reason) => post('/control/reject', { decision_id, controller_id, reason }),
     revoke: (decision_id, controller_id) => post('/control/revoke', { decision_id, controller_id }),
     setPermission: (agent, patch) => post(`/control/permissions/${agent}`, patch),
+    audit: async (q) => {
+      const res = await fetch(`${TOWER_API}/control/audit?q=${encodeURIComponent(q)}`);
+      if (!res.ok) await fail(res);
+      return res.json();
+    },
   };
 }
 

@@ -610,5 +610,11 @@ export function createMockSource(): DataSource {
       const { by, ...rest } = patch;
       permEvents.push({ t: now + 1, doc: { ...cur, ...rest, by, changed_at: iso(now) } });
     },
+    async audit(q: string) {
+      const items = decisions
+        .filter((d) => Date.parse(d.t) <= Date.now())
+        .map((d) => ({ t: d.t, kind: 'decision', actor: d.agent, summary: `${d.agent} ${d.intent_action} -> ${d.outcome}: ${d.text ?? ''}`, rule: d.rule, authorized_by: d.authorized_by, approved_by: d.approved_by, doc_id: d._id }));
+      return { narrative: `Mock answer to "${q}": ${items.length} decisions on record ${items.map((i) => `[${i.doc_id}]`).join(' ')}`, timeline: items, cited: items.map((i) => i.doc_id), source: 'mock' };
+    },
   };
 }

@@ -40,6 +40,10 @@ Notes for the web app:
 - `from` / `to` default to the last 15 minutes. Times are ISO 8601 with `Z`; ids are strings.
 - Every decision (in `decisions`, `pending` and live `decision` messages) carries its intent's
   fields as `intent` (`action`, `severity`, `target`, `reason`, `proposal_text`, `detail`, ...).
+- `/viz/snapshot` also carries `agent_state[]`: `{_id: process name, identity, updated_at}` for
+  every tower process that recorded which Atlas identity it connected with (`generated` user,
+  `static` connection string or `shared` connection; never a password or URI). It is the current
+  value in history mode too.
 - `controller_id` only adds `"mine": true/false` (lanes and streams in `/viz/world`; lane
   status, pending items and transmissions in `/viz/snapshot`). Nothing is hidden.
 - Live `object` messages are coalesced: at most two per second per object, newest state wins.
