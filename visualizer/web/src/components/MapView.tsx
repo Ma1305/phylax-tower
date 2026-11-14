@@ -472,7 +472,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             }
             if (geom.fire) {
               const f = mpx(add(geom.fire.p, geom.fire.u, 60));
-              placed.push([f[0] - 82, f[1] - 14, f[0] - 4, f[1] + 4]);
+              placed.push([f[0] - 104, f[1] - 18, f[0] + 4, f[1] + 10]);
               out.push(
                 <text key="fire" x={f[0] - 8} y={f[1]} textAnchor="end" className="slab-label quiet-label">
                   Fire station
@@ -533,8 +533,12 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             const dy = p[1] - size.h / 2;
             const k = Math.min((size.w / 2 - 24) / Math.abs(dx || 1e-6), (size.h / 2 - 24) / Math.abs(dy || 1e-6));
             const ex = size.w / 2 + dx * k;
-            const ey = Math.max(136, size.h / 2 + dy * k);
+            let ey = Math.max(136, size.h / 2 + dy * k);
             const right = ex > size.w / 2;
+            const ew = name.length * 7.3 + 70;
+            const er = (): Rect => [right ? ex - ew : ex - 6, ey - 12, right ? ex + 10 : ex + ew, ey + 8];
+            for (let i = 0; i < 6 && hit(er(), placed); i++) ey -= 18; // keep edge markers apart
+            placed.push(er());
             const nm = distM(o.position.coordinates, world.tower.center.coordinates) / NM;
             return (
               <g key={o._id} data-id={o._id} className={`obj-edge ${alert ? 'hot' : ''}`} transform={`translate(${ex},${ey})`}>
