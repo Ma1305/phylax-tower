@@ -46,7 +46,7 @@ export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, 
     <section className="needs">
       <header className="sec-head">
         <h2>Needs you</h2>
-        {stops.length + list.length > 0 && <span className={`countpill ${stops.length ? 'stop' : 'warn'}`}>{stops.length + list.length}</span>}
+        {stops.length + list.length > 0 && <span className={`countpill ${stops.length ? 'c-stop' : 'c-warn'}`}>{stops.length + list.length}</span>}
         <span className="grow" />
         {showActAs && (
           <label className="actas">

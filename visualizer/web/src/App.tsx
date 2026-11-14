@@ -407,8 +407,8 @@ export default function App() {
             return (
               <button key={c._id} className={controller === c._id ? 'on' : ''} onClick={() => setController(c._id)}>
                 {c.name}
-                {st > 0 && <i className="dotc stop" title={`${st} stop in effect`} />}
-                {n > 0 && <i className="dotc warn" title={`${n} waiting for approval`} />}
+                {st > 0 && <i className="dotc is-stop" title={`${st} stop in effect`} />}
+                {n > 0 && <i className="dotc is-warn" title={`${n} waiting for approval`} />}
               </button>
             );
           })}

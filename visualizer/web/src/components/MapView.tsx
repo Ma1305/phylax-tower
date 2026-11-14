@@ -73,6 +73,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
     }
     // terminal blocks along the landside edge of the apron
     const terminals: { c: XY; ang: number; len: number }[] = [];
+    let termLabel: XY | null = null;
     const apron = world.lanes.find((l) => l.kind === 'apron' && l.area)?.area?.coordinates[0]?.map((c) => proj.toM(c));
     const rc = rwy?.centerline ? proj.toM(rwy.centerline.coordinates[0]) : null;
     if (apron && apron.length >= 4 && rc) {
@@ -96,11 +97,12 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
       const m: XY = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       let n: XY = [-(b[1] - a[1]) / L, (b[0] - a[0]) / L];
       if ((m[0] - cen[0]) * n[0] + (m[1] - cen[1]) * n[1] < 0) n = [-n[0], -n[1]];
+      termLabel = [a[0] + (b[0] - a[0]) * 0.5 + n[0] * 230, a[1] + (b[1] - a[1]) * 0.5 + n[1] * 230];
       for (const f of [0.2, 0.5, 0.8]) {
         terminals.push({ c: [a[0] + (b[0] - a[0]) * f + n[0] * 95, a[1] + (b[1] - a[1]) * f + n[1] * 95], ang: (Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI, len: L * 0.24 });
       }
     }
-    return { proj, airfield: box(fieldPts, 220), approach: box(approachPts, 2600), final, terminals };
+    return { proj, airfield: box(fieldPts, 220), approach: box(approachPts, 2600), final, terminals, termLabel };
   }, [world]);
 
   const view = zoom === 'airfield' ? geom.airfield : geom.approach;
@@ -171,11 +173,11 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             return <rect key={i} className="terminal" x={-w / 2} y={-h / 2} width={w} height={h} rx={6} transform={`translate(${c[0]},${c[1]}) rotate(${t.ang})`} />;
           })}
         {!far &&
-          geom.terminals[1] &&
+          geom.termLabel &&
           (() => {
-            const c = mpx(geom.terminals[1].c);
+            const c = mpx(geom.termLabel);
             return (
-              <text x={c[0] + 70 * scale + 14} y={c[1] + 150 * scale} className="quiet-label small">
+              <text x={c[0]} y={c[1] + 5} className="quiet-label small">
                 Terminals
               </text>
             );
@@ -394,7 +396,7 @@ function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?:
           {l.t}
         </text>
       ))}
-      {state !== 'clear' && (
+      {state !== 'clear' && (lane.kind === 'runway' || state === 'conflict' || state === 'closed') && (
         <g transform={`translate(${chip[0] - cw / 2},${chip[1] - 11})`} className="chip">
           <title>{status?.reason ?? `${lane.name}: ${state}`}</title>
           <rect width={cw} height={22} rx={11} className="chip-bg" />
