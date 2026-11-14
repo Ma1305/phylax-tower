@@ -157,7 +157,7 @@ def test_service_account_uses_bearer_token():
 
 @pytest.fixture
 def no_atlas(monkeypatch):
-    for v in ATLAS_VARS + ("MONGODB_URI_SAFETY",):
+    for v in ATLAS_VARS + ("MONGODB_URI_SAFETY", "AGENT_IDENTITIES"):
         monkeypatch.delenv(v, raising=False)
     monkeypatch.setattr(core, "_manager", None)
     monkeypatch.setattr(access, "_identity_logged", False)
@@ -172,7 +172,7 @@ def test_no_credentials_shared_connection_and_one_log_line(no_atlas, caplog):
     c1 = access.connect_for("safety", process="safety_agent", db="db_t")
     c2 = access.connect_for("safety", process="safety_agent", db="db_t")
     assert c1 is no_atlas and c2 is no_atlas
-    lines = [r for r in caplog.records if "credentials not set" in r.getMessage()]
+    lines = [r for r in caplog.records if "generated identities off" in r.getMessage()]
     assert len(lines) == 1
     call = no_atlas["db_t"].agent_state.update_one.call_args
     assert call.args[0] == {"_id": "safety_agent"}
@@ -189,9 +189,54 @@ def test_static_uri_when_set(no_atlas, monkeypatch):
     assert "pw" not in json.dumps(ident)
 
 
-def test_generated_identity_recorded_without_password(no_atlas, monkeypatch, caplog):
+def _atlas_env(monkeypatch, switch="generated"):
     for v, val in zip(ATLAS_VARS[:4], ("p" * 24, "Sandbox", "pub", "priv-secret"), strict=True):
         monkeypatch.setenv(v, val)
+    if switch:
+        monkeypatch.setenv("AGENT_IDENTITIES", switch)
+
+
+def test_credentials_without_switch_never_call_atlas(no_atlas, monkeypatch):
+    _atlas_env(monkeypatch, switch=None)
+    called = []
+    monkeypatch.setattr(core, "IdentityManager", lambda *a, **k: called.append(1))
+    assert access.connect_for("safety", db="db_t") is no_atlas
+    assert core.manager() is None and not called
+    ident = no_atlas["db_t"].agent_state.update_one.call_args.args[1]["$set"]["identity"]
+    assert ident["kind"] == "shared"
+
+
+def test_not_ready_in_time_stays_shared_and_drops_user(no_atlas, monkeypatch):
+    _atlas_env(monkeypatch)
+    monkeypatch.setenv("MONGODB_URI", "mongodb+srv://admin:adminpw@h.mongodb.net/")
+    monkeypatch.setenv("AGENT_IDENTITY_WAIT_S", "0")
+    fake = FakeAtlas()
+    m, _ = make_manager(fake, pings=99)
+    monkeypatch.setattr(core, "_manager", m)
+    monkeypatch.setattr(core, "_cache", {})
+    dropped = []
+    monkeypatch.setattr(core, "_drop_user", lambda mgr, ident: dropped.append(ident.username))
+    monkeypatch.setattr(core.threading, "Thread",
+                        lambda target, args, **k: MagicMock(start=lambda: target(*args)))
+    no_atlas["db_t"].permissions.find_one.return_value = SAFETY
+    assert access.connect_for("safety", process="safety_agent", db="db_t") is no_atlas
+    ident = no_atlas["db_t"].agent_state.update_one.call_args.args[1]["$set"]["identity"]
+    assert ident["kind"] == "shared" and "not usable in time" in ident["note"]
+    assert dropped == [fake.users[0]["username"]]
+
+
+def test_provision_is_idempotent_one_user_per_agent():
+    fake = FakeAtlas()
+    fake.users = [{"username": "hs-db_t-safety-old111", "databaseName": "admin"},
+                  {"username": "keep-me", "databaseName": "admin"}]
+    m, _ = make_manager(fake)
+    m.provision("safety", "db_t", SAFETY, "mongodb+srv://a:b@h/")
+    deletes = [p for meth, p, _ in fake.calls if meth == "DELETE"]
+    assert deletes == [deletes[0]] and deletes[0].endswith("/admin/hs-db_t-safety-old111")
+
+
+def test_generated_identity_recorded_without_password(no_atlas, monkeypatch, caplog):
+    _atlas_env(monkeypatch)
     monkeypatch.setenv("MONGODB_URI", "mongodb+srv://admin:adminpw@h.mongodb.net/")
     fake = FakeAtlas()
     m, _ = make_manager(fake)

@@ -48,6 +48,16 @@ def _env(name: str) -> str:
     return os.environ.get(name, "").strip()
 
 
+def mode() -> str:
+    """AGENT_IDENTITIES: "generated" turns per-agent users on; anything else (default) is off."""
+    return _env("AGENT_IDENTITIES").lower() or "off"
+
+
+def enabled() -> bool:
+    """Generated identities are used only when AGENT_IDENTITIES=generated, never implicitly."""
+    return mode() == "generated"
+
+
 def missing() -> list[str]:
     """Names of the environment variables still needed for generated identities."""
     out = [n for n in ("ATLAS_PROJECT_ID", "ATLAS_CLUSTER_NAME") if not _env(n)]
@@ -131,7 +141,26 @@ class AtlasAdmin:
         self.request("POST", "/databaseUsers", user)
 
     def list_users(self) -> list[dict]:
-        return (self.request("GET", "/databaseUsers?itemsPerPage=500") or {}).get("results", [])
+        out: list[dict] = []
+        page = 1
+        while True:
+            body = self.request("GET", f"/databaseUsers?itemsPerPage=500&pageNum={page}") or {}
+            results = body.get("results", [])
+            out.extend(results)
+            if len(results) < 500:
+                return out
+            page += 1
+
+    def list_roles(self) -> list[dict]:
+        return self.request("GET", "/customDBRoles/roles") or []
+
+    def get_role(self, name: str) -> dict | None:
+        try:
+            return self.request("GET", f"/customDBRoles/roles/{name}")
+        except AtlasError as e:
+            if e.status == 404:
+                return None
+            raise
 
     def delete_user(self, username: str, database: str = "admin") -> None:
         try:
