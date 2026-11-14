@@ -1,1 +1,31 @@
+# IDE
 .idea/
+.vscode/
+
+# Secrets - never commit (the repo is public)
+.env
+.env.*
+!.env.example
+
+# MCP config files (may contain the MongoDB connection string)
+.mcp.json
+mcp.json
+*.mcp.json
+mcp-config*.json
+.claude/settings.local.json
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Generated test artifacts
+scripts/verify/out/
+
+# MongoDB agent skills: installed per machine with `npx skills add mongodb/agent-skills`
+.claude/skills/
+skills-lock.json

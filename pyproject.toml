@@ -1,0 +1,14 @@
+[project]
+name = "hold-short"
+version = "0.0.0"
+description = "Hold Short - auditable tower-radio agents on MongoDB Atlas"
+requires-python = ">=3.11"
+dependencies = [
+    "pymongo>=4.10",
+    "python-dotenv>=1.0",
+    "anthropic>=0.70",
+    "requests>=2.32",
+]
+
+[tool.uv]
+package = false
