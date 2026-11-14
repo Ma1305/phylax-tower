@@ -1,0 +1,145 @@
+{
+  "_comment": "Smoke-feed scenarios as data. Times are scenario seconds from the start of the run. `at` is a world point name, a hold point id, `LANE@f` (fraction along the lane centerline), `FINAL_<rwy>@<nm>` (nm out on the extended final), or [lon, lat]. Each line is one push-to-talk utterance; `dur` is its length in seconds.",
+  "voices": {
+    "TOWER": "21m00Tcm4TlvDq8ikWAM",
+    "AC8646": "onwK4e9ZLuTAKqWW03F9",
+    "TRUCK1": "pNInz6obpgDQGcFmaJgB",
+    "GROUND": "EXAVITQu4vr4xnSDxMaL",
+    "DL2214": "ErXwobaYiN019PkySvjV",
+    "OPS": "AZnzlk1XvdvUeBnXmlld",
+    "OPS7": "TxGEqnHWrfWFTfGW9XjX",
+    "UNKNOWN": "VR6AewLTigWG4xSOukaG"
+  },
+  "scenarios": {
+    "normal": {
+      "kind": "normal",
+      "run_name": "smoke_normal",
+      "note": "smoke feed: landing on 04, taxi on B, apron inspection; no conflict expected",
+      "duration_s": 62,
+      "objects": [
+        {"object_id": "AC8646", "kind": "aircraft", "callsign": "AC8646", "label": "A320",
+         "track": [
+           {"t": 0, "at": "FINAL_04@1.2", "alt_ft": 380},
+           {"t": 32, "at": "RWY_04_22@0", "alt_ft": 40},
+           {"t": 36, "at": "RWY_04_22@0.12", "alt_ft": 0},
+           {"t": 50, "at": "D_CROSSING", "alt_ft": 0},
+           {"t": 58, "at": "HP_D_SE", "alt_ft": 0}
+         ]},
+        {"object_id": "DL2214", "kind": "aircraft", "callsign": "DL2214", "label": "B737",
+         "track": [
+           {"t": 0, "at": "TWY_B@0.05"},
+           {"t": 18, "at": "TWY_B@0.05"},
+           {"t": 58, "at": "TWY_B@0.30"}
+         ]},
+        {"object_id": "OPS7", "kind": "vehicle", "callsign": "OPS7", "label": "Ops pickup",
+         "track": [
+           {"t": 0, "at": [-73.8735, 40.7731]},
+           {"t": 20, "at": [-73.8735, 40.7731]},
+           {"t": 35, "at": [-73.8721, 40.7737]},
+           {"t": 50, "at": [-73.8710, 40.7760]},
+           {"t": 60, "at": [-73.8721, 40.7737]}
+         ]}
+      ],
+      "lines": [
+        {"t": 1.0, "dur": 4.5, "stream": "LGA_TWR", "speaker": "AC8646",
+         "text": "LaGuardia Tower, Air Canada eight six four six, one mile final runway four."},
+        {"t": 2.0, "dur": 4.5, "stream": "LGA_GND", "speaker": "DL2214",
+         "text": "LaGuardia Ground, Delta twenty two fourteen, request taxi via Bravo."},
+        {"t": 3.5, "dur": 4.5, "stream": "LGA_OPS", "speaker": "OPS7",
+         "text": "Ops, Ops seven, request apron inspection on the main ramp."},
+        {"t": 6.5, "dur": 4.5, "stream": "LGA_TWR", "speaker": "TOWER",
+         "text": "Air Canada eight six four six, runway four, cleared to land, wind zero three zero at eight."},
+        {"t": 7.5, "dur": 4.5, "stream": "LGA_GND", "speaker": "GROUND",
+         "text": "Delta twenty two fourteen, taxi via Bravo, hold short of taxiway Delta."},
+        {"t": 9.0, "dur": 4.0, "stream": "LGA_OPS", "speaker": "OPS",
+         "text": "Ops seven, apron inspection approved, remain on the main ramp."},
+        {"t": 12.0, "dur": 3.5, "stream": "LGA_TWR", "speaker": "AC8646",
+         "text": "Cleared to land runway four, Air Canada eight six four six."},
+        {"t": 13.0, "dur": 4.0, "stream": "LGA_GND", "speaker": "DL2214",
+         "text": "Taxi via Bravo, hold short of taxiway Delta, Delta twenty two fourteen."},
+        {"t": 14.0, "dur": 3.0, "stream": "LGA_OPS", "speaker": "OPS7",
+         "text": "Remain on the main ramp, Ops seven."},
+        {"t": 47.0, "dur": 5.0, "stream": "LGA_TWR", "speaker": "TOWER",
+         "text": "Air Canada eight six four six, turn right at Delta, hold short of Bravo, contact Ground one two one point seven."},
+        {"t": 53.0, "dur": 4.5, "stream": "LGA_TWR", "speaker": "AC8646",
+         "text": "Right at Delta, hold short of Bravo, Ground one two one point seven, Air Canada eight six four six."}
+      ]
+    },
+    "incident": {
+      "kind": "incident",
+      "run_name": "smoke_incident_crossing",
+      "note": "smoke feed: TRUCK1 cleared to cross 04 at Delta while AC8646 is landing on 04",
+      "duration_s": 75,
+      "objects": [
+        {"object_id": "AC8646", "kind": "aircraft", "callsign": "AC8646", "label": "A320",
+         "track": [
+           {"t": 0, "at": "FINAL_04@1.3", "alt_ft": 410},
+           {"t": 36, "at": "RWY_04_22@0", "alt_ft": 40},
+           {"t": 41, "at": "RWY_04_22@0.14", "alt_ft": 0},
+           {"t": 50, "at": "D_CROSSING", "alt_ft": 0},
+           {"t": 70, "at": "RWY_04_22@0.85", "alt_ft": 0}
+         ]},
+        {"object_id": "TRUCK1", "kind": "vehicle", "callsign": "TRUCK1", "label": "Fire truck",
+         "obeys_stop": true,
+         "track": [
+           {"t": 0, "at": "HP_D_NW"},
+           {"t": 36, "at": "HP_D_NW"},
+           {"t": 52, "at": "D_CROSSING"},
+           {"t": 62, "at": "HP_D_SE"}
+         ]}
+      ],
+      "lines": [
+        {"t": 2.0, "dur": 4.5, "stream": "LGA_TWR", "speaker": "AC8646",
+         "text": "LaGuardia Tower, Air Canada eight six four six, one mile final runway four."},
+        {"t": 8.0, "dur": 3.5, "stream": "LGA_TWR", "speaker": "TOWER",
+         "text": "Air Canada eight six four six, runway four, cleared to land."},
+        {"t": 12.5, "dur": 3.5, "stream": "LGA_TWR", "speaker": "AC8646",
+         "text": "Cleared to land runway four, Air Canada eight six four six."},
+        {"t": 18.0, "dur": 4.0, "stream": "LGA_OPS", "speaker": "UNKNOWN",
+         "text": "Ops, uh, this is, say again the, near the... stand by."},
+        {"t": 21.0, "dur": 3.5, "stream": "LGA_GND", "speaker": "TRUCK1",
+         "text": "Ground, Truck one, at Delta, request to cross runway four."},
+        {"t": 25.0, "dur": 3.0, "stream": "LGA_GND", "speaker": "GROUND",
+         "text": "Truck one, cross runway four at Delta."},
+        {"t": 28.5, "dur": 3.5, "stream": "LGA_GND", "speaker": "TRUCK1",
+         "text": "Crossing runway four at Delta, Truck one."}
+      ]
+    },
+    "intruder": {
+      "kind": "incident",
+      "run_name": "smoke_intruder",
+      "note": "smoke feed: a person walks onto runway 04 while AC8646 is on final",
+      "duration_s": 70,
+      "objects": [
+        {"object_id": "AC8646", "kind": "aircraft", "callsign": "AC8646", "label": "A320",
+         "track": [
+           {"t": 0, "at": "FINAL_04@1.3", "alt_ft": 410},
+           {"t": 36, "at": "RWY_04_22@0", "alt_ft": 40},
+           {"t": 41, "at": "RWY_04_22@0.14", "alt_ft": 0},
+           {"t": 50, "at": "D_CROSSING", "alt_ft": 0},
+           {"t": 70, "at": "RWY_04_22@0.85", "alt_ft": 0}
+         ]},
+        {"object_id": "OBJ-17", "kind": "person", "callsign": null, "label": "Person on foot",
+         "track": [
+           {"t": 5, "at": "HP_G_SE"},
+           {"t": 40, "at": "G_CROSSING"},
+           {"t": 70, "at": "G_CROSSING"}
+         ]}
+      ],
+      "lines": [
+        {"t": 2.0, "dur": 4.5, "stream": "LGA_TWR", "speaker": "AC8646",
+         "text": "LaGuardia Tower, Air Canada eight six four six, one mile final runway four."},
+        {"t": 8.0, "dur": 3.5, "stream": "LGA_TWR", "speaker": "TOWER",
+         "text": "Air Canada eight six four six, runway four, cleared to land."},
+        {"t": 12.5, "dur": 3.5, "stream": "LGA_TWR", "speaker": "AC8646",
+         "text": "Cleared to land runway four, Air Canada eight six four six."}
+      ]
+    },
+    "both": {
+      "kind": "incident",
+      "run_name": "smoke_crossing_and_intruder",
+      "note": "smoke feed: runway crossing incident plus a person on runway 04",
+      "combine": ["incident", "intruder"]
+    }
+  }
+}
