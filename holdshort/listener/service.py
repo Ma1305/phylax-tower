@@ -1,13 +1,16 @@
 """Multi-stream listener: inbound queued audio_clips -> Transmissions, many streams at once.
 
-    MultiStreamListener(db, workers=8).run()
+    MultiStreamListener(db, workers=32).run()
 
 - A change stream on ``audio_clips`` (inserts of direction "in" / status "queued") plus a
   catch-up query at start (and every ``RESCAN_S`` seconds) find work.
 - Each clip is claimed atomically (``find_one_and_update`` queued -> processing), so two
   listeners never take the same clip.
-- One stream is drained by one worker at a time, oldest ``t_start`` first; different
-  streams run in parallel on a thread pool.
+- Every queued clip (across all streams) is transcribed concurrently on one thread pool; no
+  clip waits behind another clip's speech-to-text. Each transmission is inserted as soon as its
+  own transcription and parse are done; within a stream a finished clip is held at most
+  ``ORDER_HOLD_S`` (300 ms) for an earlier clip that is still in flight. The readback check
+  looks up the last clearance by ``t``, so slight reordering does not break it.
 - Per clip: voice isolation + ElevenLabs speech-to-text when voice is on and the clip has
   audio; else (or when that fails) the clip's ``truth_text`` at confidence 0.95; nothing
   usable -> an "unclear - say again" transmission at confidence 0. Then parse, normalise
@@ -46,6 +49,7 @@ from holdshort.listener.parse import FLAG_UNCLEAR, STATIONS, LlmFn, get_labeller
 TRUTH_CONFIDENCE = 0.95
 RESCAN_S = 10.0
 LIVE_CACHE_S = 2.0
+ORDER_HOLD_S = 0.3  # a finished clip waits at most this long for an earlier clip of its stream
 QUEUED = {"direction": "in", "status": "queued"}
 
 SttFn = Callable[[bytes, str | None], tuple[str, float]]
@@ -224,10 +228,15 @@ class ClipProcessor:
         tx = tx.model_copy(update=update)
         return Transmission.model_validate(to_mongo(tx))  # re-run validators
 
-    def process(self, clip: dict) -> Any:
-        """Build + insert the transmission and mark the clip done (failed on error)."""
+    def process(self, clip: dict, before_insert: Callable[[], None] | None = None) -> Any:
+        """Build + insert the transmission and mark the clip done (failed on error).
+
+        ``before_insert`` runs between the (slow) build and the insert: the listener uses it to
+        hold a finished clip briefly for an earlier clip of the same stream."""
         try:
             tx = self.build(clip)
+            if before_insert is not None:
+                before_insert()
             tx_id = insert(tx, self.db)
         except Exception as e:  # noqa: BLE001 - a failed clip never blocks its stream
             self.db.audio_clips.update_one(
@@ -261,15 +270,14 @@ class MultiStreamListener(StreamAgent):
     collection = "audio_clips"
     operation_types = ("insert", "update", "replace")
 
-    def __init__(self, db: Database, workers: int = 8, *, llm: LlmFn | None = None,
+    def __init__(self, db: Database, workers: int = 32, *, llm: LlmFn | None = None,
                  stt: SttFn | None | str = "auto", max_await_ms: int = 300):
         super().__init__(db, max_await_ms=max_await_ms)
         self.processor = ClipProcessor(db, llm=llm, stt=stt)
         self.pool = ThreadPoolExecutor(max_workers=max(1, workers),
                                        thread_name_prefix="listener")
-        self._lock = threading.Lock()
-        self._active: set[str] = set()
-        self._again: set[str] = set()
+        self._cond = threading.Condition()
+        self._inflight: dict[str, set[tuple]] = {}  # stream -> (t_start, _id) being worked on
         self.done = 0
 
     def pipeline(self) -> list[dict]:
@@ -300,39 +308,53 @@ class MultiStreamListener(StreamAgent):
                 self.log.exception("catch-up scan failed")
 
     def schedule(self, stream_id: str) -> None:
-        with self._lock:
-            if stream_id in self._active:
-                self._again.add(stream_id)
+        """Claim every queued clip of the stream and transcribe each one concurrently."""
+        while not self._stop.is_set():
+            clip = self.processor.claim(stream_id)
+            if clip is None:
                 return
-            self._active.add(stream_id)
-        try:
-            self.pool.submit(self._drain, stream_id)
-        except RuntimeError:  # pool shut down
-            with self._lock:
-                self._active.discard(stream_id)
+            key = (clip["t_start"], clip["_id"])
+            with self._cond:
+                self._inflight.setdefault(stream_id, set()).add(key)
+            try:
+                self.pool.submit(self._one, clip)
+            except RuntimeError:  # pool shut down
+                with self._cond:
+                    self._inflight[stream_id].discard(key)
+                return
 
-    def _drain(self, stream_id: str) -> None:
+    def _hold(self, stream_id: str, key: tuple) -> None:
+        """Keep stream order: wait (at most ORDER_HOLD_S) while an earlier clip of the same
+        stream is still in flight."""
+        deadline = time.monotonic() + ORDER_HOLD_S
+        with self._cond:
+            while any(k < key for k in self._inflight.get(stream_id, ())):
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
+                self._cond.wait(left)
+
+    def _one(self, clip: dict) -> None:
+        stream_id = clip["stream_id"]
+        key = (clip["t_start"], clip["_id"])
+        started = datetime.now(UTC)
         try:
-            while not self._stop.is_set():
-                clip = self.processor.claim(stream_id)
-                if clip is None:
-                    with self._lock:
-                        if stream_id in self._again:
-                            self._again.discard(stream_id)
-                            continue
-                        self._active.discard(stream_id)
-                        return
-                started = datetime.now(UTC)
-                tx_id = self.processor.process(clip)
-                self.done += 1
-                self.log.info("clip %s on %s -> %s (%.2fs)", clip["_id"], stream_id,
-                              tx_id or "FAILED",
-                              (datetime.now(UTC) - started).total_seconds())
+            tx_id = self.processor.process(clip, before_insert=lambda: self._hold(stream_id, key))
+            self.done += 1
+            arrived = clip.get("created_at") or clip["_id"].generation_time
+            if arrived.tzinfo is None:
+                arrived = arrived.replace(tzinfo=UTC)
+            inserted = datetime.now(UTC)
+            self.log.info("clip %s on %s -> %s: arrival->insert %.0f ms (work %.0f ms)",
+                          clip["_id"], stream_id, tx_id or "FAILED",
+                          (inserted - arrived).total_seconds() * 1000,
+                          (inserted - started).total_seconds() * 1000)
         except Exception:  # noqa: BLE001
-            self.log.exception("drain of %s failed", stream_id)
-        with self._lock:  # stopped or crashed: let a later schedule() start a new drain
-            self._active.discard(stream_id)
-            self._again.discard(stream_id)
+            self.log.exception("clip %s on %s failed", clip["_id"], stream_id)
+        finally:
+            with self._cond:
+                self._inflight.get(stream_id, set()).discard(key)
+                self._cond.notify_all()
 
     def run(self) -> None:
         try:
