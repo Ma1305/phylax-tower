@@ -7,7 +7,6 @@ import json
 import subprocess
 import sys
 import uuid
-from pathlib import Path
 
 from _env import URI_HELP, ROOT, redact, require
 

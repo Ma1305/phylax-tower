@@ -44,3 +44,7 @@ After adding them, restart Claude Code so the MongoDB MCP server picks up the co
 ## MongoDB Agent Skills
 
 Installed at project level with `npx skills add mongodb/agent-skills -a claude-code -y --skill '*'` into `.claude/skills/`, in this worktree and in `~/plane-management`. The skills include mongodb-mcp-setup, mongodb-connection, mongodb-schema-design and mongodb-natural-language-querying, plus a few others. They are gitignored. To install them on another machine, run the same command.
+
+## Data foundation (2026-11-14)
+
+`uv run python scripts/setup_atlas.py` has been run on Atlas, so the `holdshort` database now holds the ten app collections (transmissions, flight_state, runway_status, rules, permissions, decisions, intents_safety, intents_procedures, intents_weather, gate_state) with validators, indexes and seed permissions and rule sets. The env lookup moved to `holdshort/env.py`; `scripts/verify/_env.py` re-exports it. See README "Setup".
