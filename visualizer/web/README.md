@@ -1,38 +1,45 @@
 # Phylax Tower visualizer: web app
 
-The screen controllers look at. A separate system from the tower: it reads everything from the
-visualizer API (`/viz/*`, see `docs/v2/CONTRACTS.md`) and sends controller actions to the
+The screen a controller looks at. It reads everything from the visualizer API (`/viz/*`, see
+[`docs/v2/CONTRACTS.md`](../../docs/v2/CONTRACTS.md)) and sends controller actions to the
 tower's `/control/*` API. It never talks to the database.
 
-- **Left**: top-down map drawn from the world data (SVG, no tiles, no keys). Lanes by
-  `lane_status` state (colour + pattern + text tag), hold points, objects by kind (shape),
-  "Airfield" and "Approach · 7 nm" zooms, airborne list. Next to it: agent requests
-  awaiting approval (Approve / Reject), the decision log (executed, pending, refused, rejected,
-  lifted; each with rule, authorized_by and approved_by), agent switches and the master switch.
-  Under the requests: **Ask the audit agent** (the tower's `GET /control/audit?q=`): a narrative
-  with cited record ids and the timeline it was built from. Each agent switch shows the agent's
-  Atlas identity (generated user / static / shared connection) when `agent_state` has it.
-- **Top, only while a stop is in effect**: stops are autonomous by default, so an executed stop is
-  an alert the owning controller is told about, not asked about: the exact call, rule, target,
-  lane and a **Lift stop** action (`POST /control/revoke`). Phylax's own outbound call is
-  marked in its stream. Only proposals (and stops from a `needs_approval` agent) wait for approval.
-- **Right**: one card per radio stream with its transcript and audio. Pick a stream to solo it:
-  its new clips play as they arrive; with "All" nothing plays by itself.
-- **Bottom**: the timeline. Drag it to see the airfield as it was (history mode: amber frame,
-  banner, actions disabled); LIVE returns to now.
-- **View as**: All, or one controller: their lanes highlighted, their streams, their requests.
+![The web app with a stop in effect](../../docs/v2/screens/live-stop-in-effect.png)
+
+- **Top bar**: "View as" (all controllers, or one controller's lanes, streams and requests), the
+  clock, LIVE or HISTORY, the state of the agents in a few words, **Settings** and **Audit log**.
+- **Map**: drawn from the world data (SVG, no map tiles, no keys). Lanes by state (colour,
+  pattern and a text tag), objects by kind, Airfield and Approach views, zoom, and auto-focus on
+  a conflict when it begins.
+- **Needs you**: the only things that need a person. A stop in effect (the exact call, who was
+  told, **Lift stop**), proposals waiting for the owning controller (**Approve** / **Reject**)
+  and recent advisories. "Act as" picks the controller the action is sent as; a refused action
+  shows the tower's answer inline (for example `403 · not_lane_owner`).
+- **Radio**: every call as one list with its audio, a waveform, who spoke to whom and tags
+  (clearance, readback OK, unclear, Phylax's own calls).
+- **Streams dock**: one row per radio stream on the timeline's own time axis. **Listen live**
+  plays a stream's new calls as they arrive; click a clip to play it.
+- **Bottom bar**: the timeline. Drag it to see the airfield as it was (history mode: amber
+  frame, actions disabled). **Highlights** steps through the major events of the window,
+  **Skip quiet gaps** jumps over silence during playback, and LIVE returns to now.
+- **Settings**: the master switch, and for each agent its switch, mode (reactive or proactive),
+  tier (autonomous, needs approval, never) and the Atlas identity it connected with.
+- **Audit log**: every gate decision, newest first, with its rule, `authorized_by` and who
+  approved it; and **Ask the audit agent** (the tower's `GET /control/audit?q=`).
+
+Keys: space plays or pauses, the arrow keys step 5 s (with shift: to the next event), `L` goes
+live, `]` hides the side panel.
 
 ## Run
 
 ```bash
-cd visualizer/web
-npm install
+npm ci
 npm run dev -- --port 5180        # http://localhost:5180
 ```
 
-Without a backend, open **http://localhost:5180/?mock=1**: a scripted runway-incursion scenario
-generated in the browser from `src/mock/world_lga.json` (a copy of `docs/v2/world_lga.json`),
-with three minutes of history. Mock audio is a placeholder tone per clip.
+Without a backend, open **http://localhost:5180/?mock=1**: a scripted runway incursion generated
+in the browser from `src/mock/world_lga.json` (a copy of `docs/v2/world_lga.json`), with a few
+minutes of history. Mock audio is a placeholder tone per clip.
 
 ## Configuration
 
@@ -43,49 +50,32 @@ Copy `.env.example` to `.env` (gitignored). Values are read at build time.
 | `VITE_VIZ_API` | `http://localhost:8100` | `/viz/*`, `/viz/audio/{clip_id}` and the `/viz/live` WebSocket (connected directly) |
 | `VITE_TOWER_API` | `http://localhost:8000` | `POST /control/approve`, `/control/reject`, `/control/revoke`, `/control/permissions/{agent}`, `GET /control/audit` |
 
-## Build
+## Build and deploy
 
 ```bash
 npm run build        # type-check (tsc) + vite build -> dist/
-npm run preview -- --port 18531
 ```
-
-## Deploy (Firebase Hosting)
 
 `firebase.json` serves `dist/` with an SPA fallback. Firebase rewrites do not carry WebSockets,
-so the app connects straight to the API URLs baked in at build time.
+so the app connects straight to the API URLs baked in at build time, and the tower's
+`CORS_ORIGINS` must include the hosting origin. [`deploy/firebase.sh`](../../deploy/firebase.sh)
+does the build and the deploy.
 
-```bash
-cp .firebaserc.example .firebaserc            # set your project id (gitignored)
-VITE_VIZ_API=https://<viz-api-host> VITE_TOWER_API=https://<tower-api-host> npm run build
-npx firebase-tools deploy --only hosting
-```
-
-The tower's `CORS_ORIGINS` must include the hosting origin.
-
-## Paired check and screenshots
-
-`scripts/run_pair.sh` seeds a scratch database (`holdshort_v2_t<task>_pair`) with
-`../api/seed_demo.py`, starts the visualizer API and the built web app on free ports in
-18000-18999 (not mock mode), drives the screen with Playwright (`scripts/pair.mjs`), then stops
-both and drops the database. The tower API is deliberately absent: actions must fail inline.
-
-```bash
-npx playwright install chromium
-npm run pair               # the checks
-npm run screenshots        # the checks, and retake docs/*.png
-```
-
-`docs/` holds the review screenshots: live, inline action error, solo stream, Ground and Local
-views, approach zoom, two history views, 1100 px and 480 px windows (all from the seeded API) and
-an active conflict (mock mode).
-
-## Layout of the code
+## Code
 
 ```
-src/types.ts            contract shapes + the DataSource interface
-src/source.ts           HTTP/WebSocket source (VITE_VIZ_API, VITE_TOWER_API); picks mock on ?mock=1
+src/types.ts            contract shapes and the DataSource interface
+src/source.ts           HTTP and WebSocket source (VITE_VIZ_API, VITE_TOWER_API); picks mock on ?mock=1
 src/mock/               the mock source: scenario, placeholder audio
-src/App.tsx             live/history state, audio queue, controller filter
-src/components/         MapView, Requests (+ audit trail), Agents, Streams, Timeline
+src/App.tsx             live and history state, playback, highlights, audio queue, controller filter
+src/components/         MapView, NeedsYou, Radio, StreamDock, Timeline, AgentPills (settings), Requests (audit log), Menu
+scripts/                Playwright checks (see below)
 ```
+
+## Playwright checks
+
+`npm run pair` (`scripts/run_pair.sh`, `scripts/pair.mjs`) drives the built app against a
+visualizer API seeded with `../api/seed_demo.py`, and `scripts/integration.mjs` drives it against
+the real tower (`scripts/viz_integration.sh` at the repo root). Both were written before the
+final redesign of the screen: their selectors target the earlier layout and have not been
+updated or re-run against this one.

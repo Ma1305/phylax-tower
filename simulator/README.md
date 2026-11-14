@@ -1,6 +1,6 @@
-# Hold Short simulator
+# Phylax Tower simulator
 
-Live-looking traffic, radio and weather for the Hold Short tower. It is a separate program:
+Live-looking traffic, radio and weather for Phylax Tower. It is a separate program:
 it talks to the tower only through the `/ingest/*` HTTP API defined in
 [`docs/v2/SIMULATOR_CONTRACT.md`](../docs/v2/SIMULATOR_CONTRACT.md), exactly as real feeds
 would. It imports nothing from `holdshort/` or `visualizer/` and never touches the database.
@@ -13,7 +13,7 @@ What it sends:
   deliberate stepped-on call). Each clip carries the true text and speaker for scoring.
 - **Weather** reports and **run markers** (so a scenario shows on the visualizer timeline).
 
-What it listens for: `GET /ingest/outbound`, about once a second. Traffic that Hold Short
+What it listens for: `GET /ingest/outbound`, about once a second. Traffic that Phylax Tower
 tells to stop, stops; an aircraft told to go around, goes around.
 
 Every timestamp is the real current UTC time. `--speed` shortens the waits only.
@@ -92,7 +92,7 @@ landed earlier is already off the runway, so the tower is not shown a landing cl
 an occupied runway. **Geometry:** the tower's seeded schematic, not a survey; positions are
 placed by distance from taxiway D, as the report gives them.
 
-**What the simulator adds:** a stop from Hold Short addressed to Truck 1 makes the crew brake
+**What the simulator adds:** a stop from Phylax Tower addressed to Truck 1 makes the crew brake
 after `--crew-reaction-s` (default 2). The controller's own stop calls are played as they
 happened and, as on the night, do not stop the truck. The result reports
 `stop_heard_after_s` against `stop_needed_within_s` (about 14.7 s after the clearance with the
@@ -126,8 +126,8 @@ different voice per speaker), else macOS `say`, else plain tones. Clips get a ra
 `simulator/.cache/audio/` so each line is generated once. Before a run the simulator
 pre-generates every line of the scenario; `python -m hssim warm all` does that for all of them.
 
-Keys are read from the environment or a `.env` (`$SIM_ENV`, `./.env`, the repo's `.env`,
-`~/plane-management-2/.env`) and are never printed.
+Keys are read from the environment or a `.env` (`$SIM_ENV`, `./.env`, the repo's `.env`) and
+are never printed.
 
 ## Layout
 

@@ -1,6 +1,6 @@
 # Phylax Tower visualizer API
 
-Read-only API for the visualizer (`/viz/*` in `docs/v2/CONTRACTS.md`). It is a separate system
+Read-only API for the visualizer (`/viz/*` in [`docs/v2/CONTRACTS.md`](../../docs/v2/CONTRACTS.md)). It is a separate system
 from the tower: its own `pyproject.toml`, no imports from `holdshort/`, and it never writes to
 the tower's database. Controller actions go to the tower's `/control/*` API, not here.
 
@@ -12,7 +12,8 @@ uv sync
 uv run uvicorn app:app --port 8100          # or: PORT=8100 uv run python app.py  (honours $PORT)
 ```
 
-Settings (environment, or `~/plane-management-2/.env`, or a local `.env`; see `.env.example`):
+Settings come from the environment or a `.env` file in this folder (see `.env.example`). It
+does not read the `.env` at the repo root; link or copy that file here.
 
 | Variable | Meaning |
 |---|---|
@@ -84,6 +85,6 @@ it writes are emptied first. It creates no TTL index, so the six objects stay fo
 ## Tests
 
 ```bash
-uv run pytest        # seeds holdshort_v2_t<task number>, drops it at the end
+uv run pytest        # needs MONGODB_URI; seeds a scratch database and drops it at the end
 uv run ruff check . && uv run ruff format --check .
 ```
