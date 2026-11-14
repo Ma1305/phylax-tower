@@ -31,7 +31,7 @@ Other commands: `npm run studio` (interactive preview on port 18080; stop it whe
 ## Layout
 
 ```
-script.json    config block (names, repo URL, demo URL) + scenes: id, start_s, end_s, vo_text
+script.json    config block (product name, team names) + scenes: id, start_s, end_s, vo_text
 assets.json    manifest of expected asset files and what each should contain
 sources.json   which repo files / identifiers prepare.mjs reads (edit this if code moves)
 assets/        drop assets here (Remotion public dir)
@@ -89,7 +89,7 @@ Scene 1 is a news-style report built on real material from the NTSB investigatio
   rather not show the wreckage, delete `incident_photo.jpg` and supply another image under the same name.
 
 Recordings should be 16:9 and at least as long as their slot (they are cropped to fit, muted,
-and start at the slot's first frame). Names, repo URL and demo URL: edit `config` at the top of
+and start at the slot's first frame). Product name and team names: edit `config` at the top of
 `script.json`; `{names}` in the scene 2 `vo_text` is filled from `config.team_names`.
 
 ## Retiming (if the voiceover runs long)
@@ -154,8 +154,6 @@ Anything not found in code or spec is drawn as a red `[PLACEHOLDER name]` and li
 - Assets: everything in the table above except the two NTSB images. Required: `vo.wav`,
   `rec_safety_on.mp4`, `stop_spoken.wav`, the three scene 5 recordings. Optional: the four
   `cam_*.mp4` clips, `incident_clip.mp4`, `team.png`.
-- `script.json` config: `team_names` (four `[NAME n]`), `demo_url` (`[DEMO URL]`).
-  `repo_url` is filled in.
 - Spec-only names in the table above (`ScopedDb`, `state_events`, `context`, the
   `state_events` row shape).
 - The spoken stop phrase is not shown as text (it is not in code on `v2/base`); scene 4e shows

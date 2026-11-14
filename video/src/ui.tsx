@@ -39,7 +39,7 @@ export type SceneSpec = {
   news?: { kicker: string; headline: string; subline: string; facts: string[]; source: string };
 };
 export const script = scriptJson as unknown as {
-  config: { product_name: string; hide_missing_optional?: boolean; team_names: string[]; repo_url: string; demo_url: string; width: number; height: number; fps: number };
+  config: { product_name: string; hide_missing_optional?: boolean; team_names: string[]; width: number; height: number; fps: number };
   scenes: SceneSpec[];
 };
 /** A name that came from the repo, or a visible placeholder when it was not found. */
