@@ -121,7 +121,8 @@ weather: only the newest stays, the older one is superseded. Agents read `contex
 _id = agent, agent, enabled: bool, mode: AgentMode, tier: PermissionTier,
 read: [collection], write: [collection], by, changed_at
 ```
-Seed: safety proactive / needs_approval; procedures proactive / needs_approval; weather
+Seed: safety proactive / autonomous (a critical stop runs at once, is spoken, logged and shown
+to the owning controller, who can lift it); procedures proactive / needs_approval; weather
 proactive / autonomous; listener reactive / autonomous; system (master) enabled.
 Seeded access lists:
 
@@ -243,6 +244,9 @@ POST /control/approve   {decision_id, controller_id}
 POST /control/reject    {decision_id, controller_id, reason?}
 POST /control/revoke    {decision_id, controller_id}
 POST /control/permissions/{agent}  {by: controller_id, enabled?, mode?, tier?}
+GET  /control/decisions?tower_id=LGA[&controller_id=][&since=ISO][&limit=100]
+                                                     the decision log, newest first, each
+                                                     with its intent merged in as `intent`
 GET  /control/audit?q=...                            the audit agent's answer (as v1)
 ```
 Errors: 400 bad input, 403 `not_lane_owner`, 404 unknown id, 409 already decided.
