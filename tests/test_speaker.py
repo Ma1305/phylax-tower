@@ -170,6 +170,23 @@ def test_outbound_endpoint(db):
     # the 3 s overlap repeats the call; clients de-duplicate by decision_id
     assert [x["decision_id"] for x in r2.json()["calls"]] == [str(d["_id"])]
     late = (datetime.now(UTC) + timedelta(seconds=10)).isoformat().replace("+00:00", "Z")
-    assert c.get("/ingest/outbound", params={"tower_id": "LGA", "since": late}).json()["calls"] == []
+    r3 = c.get("/ingest/outbound", params={"tower_id": "LGA", "since": late})
+    assert r3.json()["calls"] == []
     assert c.get("/ingest/outbound", params={"tower_id": "XXX", "since": t0}).json()["calls"] == []
     assert c.get("/ingest/outbound", params={"tower_id": "LGA", "since": "bad"}).status_code == 400
+
+
+def test_publish_before_speech(db, monkeypatch):
+    def slow(text):
+        raise AssertionError("publish must not synthesise")
+    monkeypatch.setattr(core, "synthesize", slow)
+    d = insert(db, decision())
+    tx = core.publish_decision(db, d)
+    assert tx and tx["audio_id"] is None
+    clip = db.audio_clips.find_one({"_id": tx["clip_id"]})
+    assert clip["status"] == "processing" and clip["audio_id"] is None
+    assert core.publish_decision(db, d) is None  # exactly once
+    monkeypatch.setattr(core, "synthesize", lambda text: (b"ID3fake", "audio/mpeg"))
+    core.attach_audio(db, tx)
+    clip = db.audio_clips.find_one({"_id": tx["clip_id"]})
+    assert clip["status"] == "done" and clip["audio_id"] is not None
