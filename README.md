@@ -1,163 +1,60 @@
 # Hold Short
 
-AI agents that listen to simulated tower radio, store every call in MongoDB Atlas,
-and stop a runway conflict before it happens. The AI can stop traffic, never clear it.
+An airport tower assistant built on MongoDB Atlas. Agents listen to several radio streams and
+position feeds at once, keep a live picture of every runway and taxiway, and warn, stop or
+propose an instruction to the controller who owns that lane. **The AI can warn, stop or
+propose. It can never clear traffic. The controller stays in charge.**
 
-## Setup
+All radio in this repo is synthetic (text-to-speech or tones). No real ATC recordings.
 
-Requirements: Python 3.12 with [uv](https://docs.astral.sh/uv/), Node 22.12+ (for `web/`),
-and an Atlas cluster you can reach.
+## Three systems
 
-1. Copy `.env.example` to `.env` (gitignored, never commit it) and fill in `MONGODB_URI`.
-   `MONGODB_DB` defaults to `holdshort`. On the shared VM the file lives at
-   `~/plane-management/.env`; `holdshort/env.py` finds it from any worktree
-   (lookup order: `$HOLDSHORT_ENV`, `<repo>/.env`, `~/plane-management/.env`).
-2. Install dependencies (the `holdshort` package is installed in editable mode):
+| System | Where | What it does |
+|---|---|---|
+| Tower (the product) | `holdshort/` | FastAPI `/ingest/*`, `/control/*`, `/health` plus workers: listener (audio clips -> transmissions), state (lane status), memory (expiring `context`), agents (safety rules, procedures LLM advisor, weather), gate (intents -> decisions), speaker (spoken outbound calls). |
+| Visualizer | `visualizer/` | Separate read-only API and web app: live map, streams, controllers, time travel from stored records. Never writes; controller actions go to the tower's `/control/*`. |
+| Simulator | `simulator/` (separate build) | Feeds the tower through `/ingest/*` only. `tools/smoke_feed.py` is a small stand-in for tests. |
 
-   ```bash
-   uv sync
-   ```
+## Run it
 
-3. Create the collections, `$jsonSchema` validators, indexes and seed data
-   (idempotent, safe to re-run; it never resets live permission switches or the
-   active rule set):
-
-   ```bash
-   uv run python scripts/setup_atlas.py
-   ```
-
-4. Check everything:
-
-   ```bash
-   uv run ruff check .
-   uv run pytest          # validator tests use the throwaway "<MONGODB_DB>_test" database
-   ```
-
-`holdshort/contracts.py` is the single source of truth for documents; the validators
-in `scripts/setup_atlas.py` read their enums from it. `SETUP_STATUS.md` covers the
-VM setup checks in `scripts/verify/`.
-
-## API
+Requirements: Python 3.12 with [uv](https://docs.astral.sh/uv/), `ffmpeg` (placeholder tones),
+an Atlas cluster. Put `MONGODB_URI` (and optionally `LLM_API_KEY`, `ELEVENLABS_API_KEY`,
+`VOICE_ENABLED`) in a gitignored `.env`; copy `.env.example`. Without the optional keys the
+tower degrades: rule/template text instead of the LLM, `truth_text` and tones instead of speech.
 
 ```bash
-uv run uvicorn holdshort.api.app:app --port 8000   # CORS open for localhost origins
+uv sync
+scripts/run_v2.sh --db holdshort_v2 --port 8000     # setup_atlas, setup_search (bg), serve; waits for /health
+uv run python tools/smoke_feed.py --api http://localhost:8000 --scenario incident
+scripts/stop_v2.sh
 ```
 
-- `WS /ws`: first a `{"type": "snapshot", "doc": {permissions, rules, transmissions,
-  decisions, flight_state, runway_status}}`, then one `{"type", "doc", "collection", "op"}`
-  per change (`type`: transmission | decision | permission | state). ObjectIds are strings,
-  datetimes ISO 8601 with `Z`.
-- `POST /permissions/{agent}` `{enabled, by}`, `POST /approve` `{intent_id, controller}`,
-  `POST /revoke` `{decision_id, controller}` go through `holdshort.gate`.
-- `POST /scenario/start` `{safety_enabled, mode: "text"|"audio"}`, `POST /scenario/reset`,
-  `POST /rogue`, `GET /audit?q=` call `holdshort.scenario.start(db, *, safety_enabled, mode)`,
-  `holdshort.scenario.reset(db)`, `holdshort.agents.rogue(db)`, `holdshort.audit.answer(db, q)`
-  (`HOOKS` in `holdshort/api/app.py`); a missing hook answers 501. `/scenario/start` returns at once and plays in a thread of
-  the API (`HOLDSHORT_SCENARIO_SPEED`, default 1); `GET /scenario/status` reports the run.
-- Tier 2: `GET /incidents/similar?q=&k=3`, `GET /callsigns/confusable?callsign=AC8646&callsign=TRUCK1`
-  (holdshort.search; 503 until `scripts/setup_search.py` has run), `GET /voice/alerts/{decision_id}`
-  (mp3 from the voice alert service; 404 when voice is off). `GET /health` reports `voice_enabled`.
-- Decision events and snapshot decisions carry a read-only `intent` view
-  (`action, target, runway, reason, conflicts_with, proposal_text`) for the UI.
+`python -m holdshort.serve` runs every process in one supervisor (`--only api,gate` for a
+subset); logs go to `logs/v2/serve.log`. Each worker can also run alone (`python -m
+holdshort.gate --db NAME`, ...).
 
-## Live demo
-
-`scripts/demo.sh` starts gate, agents, API (:8000) and web (:5173), logs in `logs/demo/`;
-`scripts/demo_stop.sh` stops it all. Runbook with the exact clicks: [DEMO.md](DEMO.md).
-`scripts/demo_api_check.sh` checks the whole stack headlessly through the API.
-- `GET /health`. The gate runs as its own process; `HOLDSHORT_API_RUN_GATE=1` runs it
-  inside the API instead.
-
-## Voice alert service
-
-`uv run python -m holdshort.voice_alert` watches `decisions` for executed STOPs and speaks
-them: "Truck one, STOP. Hold short runway zero four. Air Canada eight six four six, traffic
-Truck one holding short runway zero four." With `VOICE_ENABLED=true` + `ELEVENLABS_API_KEY`
-it writes `logs/voice_alerts/<decision_id>.mp3` (ElevenLabs TTS; voice `ELEVENLABS_VOICE_ALERT`,
-default the tower voice) which the web UI plays; `VOICE_ALERT_PLAY=1` also plays it on the
-host. Voice off: it only logs the phrase. It never writes to MongoDB. `scripts/demo.sh` starts it.
-
-## Listener agent
+Checks:
 
 ```bash
-uv run python -m holdshort.listener scenarios/laguardia/audio/medium/          # insert into MONGODB_DB
-uv run python -m holdshort.listener scenarios/laguardia/audio/medium/ --check  # + compare with script `expect`
-uv run python -m holdshort.listener --text --dry-run                           # script lines, no insert
+uv run pytest -q && uv run ruff check .
+scripts/e2e_check.sh     # throwaway db + free port: incident, normal, reactive; PASS/FAIL per assertion
 ```
 
-- Audio mode (VOICE_ENABLED=true + ELEVENLABS_API_KEY): `clean()` (ElevenLabs voice isolation,
-  passthrough on failure) -> `transcribe()` (ElevenLabs STT, confidence = mean word probability)
-  -> `parse()` -> readback check -> `insert()` (insert-only).
-- Text mode (`--text`, voice disabled, or no clips on disk): lines from `scenarios/laguardia/script.json`,
-  simulated confidence 0.95 (0.55 for lines marked `"unclear": true`).
-- `parse()` labels with the Anthropic LLM (`LLM_API_KEY`, `LLM_MODEL`, default `claude-opus-5-5`,
-  structured JSON output). Without a key it falls back to an offline phraseology labeller
-  (`holdshort/listener/rules.py`); force one with `--labeller llm|rules`.
-  Values are always normalised in code: "Truck one and company" -> TRUCK1, "the jet" -> AC8646, "4" -> "04", "Delta" -> "D".
-- Confidence < 0.8 or an unparseable call -> kind `other`, `verified: false`, transcript kept,
-  `flag: "unclear - say again"`. A "stop" with no callsign -> kind `stop`, `to: "UNKNOWN"`, flagged.
-- `readback`: clearance -> `missing` (awaiting readback), readback -> `matched`/`mismatch` vs the last
-  clearance to that callsign, everything else -> `not_applicable`.
+## Contracts
 
-## Agents and scenario runner
+- `docs/v2/PLAN.md`: product, architecture, processes, design decisions.
+- `docs/v2/CONTRACTS.md`: every collection shape, enum and the `/control/*` and `/viz/*` APIs
+  (`holdshort/contracts.py` and the validators in `scripts/setup_atlas.py` match it).
+- `docs/v2/SIMULATOR_CONTRACT.md`: the `/ingest/*` API.
 
-Each agent is its own process. Agents never act: they only insert intents into
-`intents_<agent>`; the gate (`python -m holdshort.gate`) decides.
+## The three questions (statement #1, "Agents You Can Audit")
 
-    uv run python -m holdshort.agents.safety_agent       # transmissions -> stop intents
-    uv run python -m holdshort.agents.procedures_agent   # executed crossing stop -> proposal
-    uv run python -m holdshort.agents.weather_agent      # METAR < 1 sm -> set_rule_set low_vis_v1
-    uv run python -m holdshort.agents.procedures_agent rogue   # blocked writes -> security_events
+| Question | Answer in this build |
+|---|---|
+| How do you decide what an agent may do, and enforce it before the action? | Agents only insert intents into their own `intents_<agent>` collection. Atlas `$jsonSchema` validators (agent identity, no "clear" action), the `ScopedDb` read/write lists from `permissions`, and the gate (enabled, mode, tier, lane owner) all run before any decision executes. |
+| How do you record what it did, why, and under whose authority? | Insert-only `decisions` carry `rule`, `authorized_by`, `controller_id`, `approved_by`; every blocked attempt (wrong controller, denied read, validator rejection) lands in `security_events`; every switch, lane and rule-set change in `state_events`. Transmissions are never deleted. |
+| How do you stop or roll back an agent mid-run? | Per-agent and master switches, mode (`reactive` = warn only) and tier take effect on the next intent (`POST /control/permissions/{agent}`); `POST /control/revoke` inserts a new decision pointing at the old one. |
 
-    uv run python -m holdshort.scenario.runner reset     # clears flight_state + runway_status only
-    uv run python -m holdshort.scenario.runner start --safety on --speed 5 --mode text
-
-`scripts/demo_check.sh` runs the whole thing (gate + agents, scenario with safety off
-then on, rogue agent) in a throwaway `<MONGODB_DB>_demo_check` database and asserts
-the demo outcomes. Logs go to `logs/demo_check/`.
-
-## Search (tier 2)
-
-```bash
-uv run python scripts/setup_search.py   # idempotent: collections, seeds, indexes, waits for READY
-```
-
-- `holdshort.search.callsigns.resolve("truck one")` -> `Match(callsign="TRUCK1", score=...)`
-  (spoken words normalized to callsign form, then fuzzy `$search` on `callsigns_search`).
-- `holdshort.search.callsigns.similar_on_frequency("AC8646")` -> confusable callsigns on the
-  same frequency (AC6846, AC8464) with a reason.
-- `holdshort.search.incidents.similar(text, k=3)` -> past runway incursions. Uses `$vectorSearch`
-  with automated embedding (`voyage-4` on `summary`, index `incidents_vector`), and falls back to
-  the Atlas Search text index `incidents_text` if the vector index is not queryable.
-  The incident summaries are written in our own words and name no airlines or people.
-
-## Audit agent
-
-`holdshort/audit/` is read-only (aggregate/distinct only). `timeline(entity, around=None)`
-runs one aggregation over transmissions, `intents_*`, decisions, permissions and
-security_events and returns items `{t, kind, actor, summary, rule, authorized_by,
-approved_by, doc_id}` in scenario order. `explain(question)` uses the LLM (`LLM_API_KEY`,
-`LLM_MODEL`) to pick the entity/time and write a narrative citing `[doc_id]`s; a narrative
-that cites anything outside the timeline is discarded for a deterministic one.
-`answer(db, q)` is the hook `GET /audit?q=...` in `holdshort/api/app.py` calls.
-
-```bash
-uv run python -m holdshort.audit "Why was TRUCK1 held?"
-```
-
-## Checkpoints (LangGraph + MongoDB)
-
-The safety and procedures agent loops are LangGraph graphs (safety: evaluate -> emit ->
-persist; procedures: check -> propose -> done) checkpointed to Atlas with
-`MongoDBSaver` (`checkpoints_<agent>` / `checkpoint_writes_<agent>` in the same database).
-The `thread_id` is the scenario run id: `scenario.runner start` inserts a
-`scenario_runs` document whose `_id` is the run marker. A killed agent loads its
-thread's checkpoint on restart, finishes an interrupted step if it died between nodes,
-catches up only on documents it missed, and skips anything already checkpointed. The
-safety decision is still the deterministic rule engine (no LLM). LangSmith tracing is
-on only if `LANGSMITH_API_KEY` is set.
-
-    scripts/crash_demo.sh   # kill -9 the safety agent mid-run, restart, assert resume + stop
-
-It uses a throwaway `<MONGODB_DB>_crash_demo` database (`$CRASH_DEMO_DB` to override);
-logs go to `logs/crash_demo/`.
+`scripts/e2e_check.sh` exercises all three: a stop routed to the runway's controller, a 403
+plus a security event when the ground controller tries to approve it, the spoken stop that
+holds the truck short, and the same incident with safety set to reactive giving only an advisory.

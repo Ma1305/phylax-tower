@@ -157,9 +157,10 @@ def test_worker_writes_lane_status_and_state_events(test_db):
 
     db = test_db
     db.objects.delete_many({})
-    before = db.state_events.count_documents({"kind": "lane_status", "ref": "RWY_04_22"})
+    db.transmissions.delete_many({})   # other test modules share this database
     w = StateWorker(db)
-    w.recompute()
+    w.recompute()   # settles whatever earlier test modules left behind
+    before = db.state_events.count_documents({"kind": "lane_status", "ref": "RWY_04_22"})
     now = datetime.now(UTC)
     o = obj("AC8646", now, status="airborne", alt_ft=900) | {
         "position": {"type": "Point", "coordinates": [-73.95, 40.72]},
