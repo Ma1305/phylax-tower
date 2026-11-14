@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pymongo.database import Database
 
@@ -39,18 +40,27 @@ def outbound(
     tower_id: Annotated[str, Query(min_length=1)],
     since: Annotated[str | None, Query()] = None,
 ) -> dict:
+    """Outbound calls whose transmission was inserted after ``since`` (newest last).
+
+    Selection is by insertion time (the ObjectId), not by ``t``: a call's ``t`` is set when the
+    decision executes, which can be earlier than the moment the document becomes visible. The
+    window overlaps by 3 s (ObjectId time has one-second resolution), so the same call can be
+    returned by several polls: clients de-duplicate by ``decision_id``.
+    """
     now = datetime.now(UTC)
     t_since = _parse_since(since)
+    oid_since = ObjectId.from_datetime(t_since - timedelta(seconds=3))
     txs = list(db.transmissions.find(
         {"tower_id": tower_id, "synthetic": True, "direction": "out",
-         "decision_id": {"$ne": None}, "t": {"$gt": t_since}},
-    ).sort("t", 1).limit(MAX_CALLS))
+         "decision_id": {"$ne": None}, "_id": {"$gte": oid_since}},
+    ).sort("_id", 1).limit(MAX_CALLS))
     decisions = {d["_id"]: d for d in db.decisions.find(
         {"_id": {"$in": [t["decision_id"] for t in txs]}})}
     calls = []
     for tx in txs:
         d = decisions.get(tx["decision_id"], {})
         calls.append({
+            "id": str(tx["_id"]),
             "t": _iso(tx["t"]),
             "decision_id": str(tx["decision_id"]),
             "stream_id": tx.get("stream_id"),

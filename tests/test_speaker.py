@@ -160,12 +160,16 @@ def test_outbound_endpoint(db):
     assert len(body["calls"]) == 1
     call = body["calls"][0]
     assert call == {
-        "t": call["t"], "decision_id": str(d["_id"]), "stream_id": "LGA_GND",
+        "id": str(tx["_id"]), "t": call["t"], "decision_id": str(d["_id"]),
+        "stream_id": "LGA_GND",
         "action": "propose_instruction", "target": ["TRUCK1", "AC8646"],
         "lane_id": "RWY_04_22", "text": "Truck one, hold position.",
         "approved_by": "ctl_local", "clip_id": str(tx["clip_id"]),
     }
     r2 = c.get("/ingest/outbound", params={"tower_id": "LGA", "since": body["now"]})
-    assert r2.json()["calls"] == []
+    # the 3 s overlap repeats the call; clients de-duplicate by decision_id
+    assert [x["decision_id"] for x in r2.json()["calls"]] == [str(d["_id"])]
+    late = (datetime.now(UTC) + timedelta(seconds=10)).isoformat().replace("+00:00", "Z")
+    assert c.get("/ingest/outbound", params={"tower_id": "LGA", "since": late}).json()["calls"] == []
     assert c.get("/ingest/outbound", params={"tower_id": "XXX", "since": t0}).json()["calls"] == []
     assert c.get("/ingest/outbound", params={"tower_id": "LGA", "since": "bad"}).status_code == 400
