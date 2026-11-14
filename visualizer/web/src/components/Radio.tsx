@@ -157,11 +157,42 @@ function ClipWave({ tx, playing, audioRef, url }: { tx: Transmission; playing: b
   return <canvas ref={ref} className="clip-wave" />;
 }
 
+const Meter = () => (
+  <span className="meter" aria-hidden>
+    <i />
+    <i />
+    <i />
+  </span>
+);
+
+/** Listen to one stream: its calls play aloud as they arrive. */
+function ListenButton({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className={`listen ${on ? 'on' : ''}`}
+      aria-pressed={on}
+      title="Play this stream's calls aloud as they arrive"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
+        <path d="M1 4.2h2.2L6 1.8v8.4L3.2 7.8H1z" fill="currentColor" />
+        <path d="M8 4a3 3 0 010 4M9.6 2.4a5.2 5.2 0 010 7.2" fill="none" stroke="currentColor" strokeWidth="1.1" />
+      </svg>
+      {on ? 'Listening live' : 'Listen live'}
+      {on && <Meter />}
+    </button>
+  );
+}
+
 export function Radio(p: Props) {
   const [paused, setPaused] = useState(true);
   const [filter, setFilter] = useState('all');
   const [open, setOpen] = useState<string | null>(null);
-  const [follow, setFollow] = useState(false);
+  const [listen, setListen] = useState<string | null>(null);
   const [lanesOpen, setLanesOpen] = useStored('streams.open');
   const [logOff, setLogOff] = useStored('log.collapsed');
   const canvases = useRef<Record<string, HTMLCanvasElement | null>>({});
@@ -181,7 +212,7 @@ export function Radio(p: Props) {
   const url = p.mock ? null : p.audioUrl;
 
   // "Follow live": new clips of the selected stream play as they arrive (the app's solo listening).
-  const want = follow && activeFilter !== 'all' ? activeFilter : 'all';
+  const want = listen && shownIds.has(listen) ? listen : 'all';
   const { solo, onSolo } = p;
   useEffect(() => {
     if (solo !== want) onSolo(want);
@@ -259,7 +290,7 @@ export function Radio(p: Props) {
 
   return (
     <section className={`radio ${logOff ? 'log-shut' : ''}`}>
-      <header className="sec-head toggle-head strip" onClick={() => setLanesOpen(!lanesOpen)} aria-expanded={lanesOpen} title={lanesOpen ? 'Hide the stream lanes' : 'Show the stream lanes (last 60 s)'}>
+      <header className={`sec-head toggle-head strip ${lanesOpen ? '' : 'chips'}`} onClick={() => setLanesOpen(!lanesOpen)} aria-expanded={lanesOpen} title={lanesOpen ? 'Hide the stream lanes' : 'Show the stream lanes (last 60 s)'}>
         <i className={`chev ${lanesOpen ? '' : 'shut'}`} />
         <h2>Streams</h2>
         {!lanesOpen &&
@@ -273,6 +304,7 @@ export function Radio(p: Props) {
                   canvases.current[s._id] = el;
                 }}
               />
+              <ListenButton on={want === s._id} onClick={() => setListen(want === s._id ? null : s._id)} />
             </span>
           ))}
         {p.streams.length === 0 && <span className="sec-note">{p.emptyNote ?? 'No streams.'}</span>}
@@ -292,6 +324,7 @@ export function Radio(p: Props) {
                     <span className="num">{s.frequency_mhz?.toFixed(1)}</span>
                   </div>
                   <div className="slane-owner">{ctlName(s.controller_id)}</div>
+                  <ListenButton on={want === s._id} onClick={() => setListen(want === s._id ? null : s._id)} />
                 </div>
                 <div className="slane-main">
                   <canvas
@@ -324,12 +357,6 @@ export function Radio(p: Props) {
         <h2>Radio</h2>
         <span className="grow" />
         <span className="radio-tools" onClick={(e) => e.stopPropagation()}>
-          <label className={`follow ${activeFilter === 'all' ? 'idle' : ''}`} title={activeFilter === 'all' ? 'Pick a stream first: with All selected nothing plays by itself' : 'Play new clips of this stream as they arrive'}>
-            <button type="button" role="switch" aria-checked={follow} aria-label="Follow live" className={`toggle ${follow ? 'on' : ''}`} onClick={() => setFollow(!follow)}>
-              <span />
-            </button>
-            Follow live
-          </label>
           <div className="seg" role="group" aria-label="Show stream">
             <button className={activeFilter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>
               All
@@ -342,6 +369,17 @@ export function Radio(p: Props) {
           </div>
         </span>
       </header>
+      {want !== 'all' && (
+        <div className="listening-bar">
+          <Meter />
+          <span>
+            Listening to <b>{streamOf(want)?.name ?? want}</b> · new calls play aloud as they arrive
+          </span>
+          <button className="btn" onClick={() => setListen(null)}>
+            Stop
+          </button>
+        </div>
+      )}
       <div className={`log scroll ${logOff ? 'shut' : ''}`}>
         {p.blocked && <div className="calm warn-text">The browser blocked autoplay. Click a row once to allow sound.</div>}
         {lines.length === 0 && p.streams.length > 0 && <div className="calm">{p.loading ? 'Loading transmissions…' : p.live ? 'No transmissions yet.' : 'Nothing had been said at this time.'}</div>}

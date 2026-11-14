@@ -82,9 +82,14 @@ export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, 
                   {errors[d._id]}
                 </div>
               )}
-              <button className="btn lift" disabled={readOnly || busy === d._id} onClick={() => run(d, 'revoke')}>
-                {busy === d._id ? 'Lifting…' : 'Lift stop'}
-              </button>
+              <div className="req-actions">
+                <button className="btn lift" disabled={readOnly || busy === d._id} onClick={() => run(d, 'revoke')}>
+                  {busy === d._id ? 'Lifting…' : 'Lift stop'}
+                </button>
+                <button className="btn" onClick={() => window.dispatchEvent(new Event('phylax:focus-conflict'))} title="Frame the conflict on the map">
+                  Focus conflict
+                </button>
+              </div>
             </article>
           );
         })}

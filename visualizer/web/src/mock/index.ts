@@ -432,6 +432,16 @@ export function createMockSource(): DataSource {
       }),
     );
     if (s >= 100) out.push(mk({ _id: 'OBJ-23', kind: 'unknown', label: 'Unidentified', pos: [-73.8688, 40.7712] }));
+    // A crowd near taxiway D (the LaGuardia replay has about a dozen objects close together).
+    const fs = P.FIRE_STATION;
+    ['TRUCK7', 'ARFF-2', 'ARFF-3', 'ARFF-4'].forEach((id, k) =>
+      out.push(mk({ _id: id, kind: 'vehicle', callsign: id, label: 'Fire vehicle', pos: seg(fs, hpNW, 0.12 + k * 0.17).map((v, j) => v + (j ? 0.00022 : 0.0003)), heading_deg: Math.round(bearing(fs, hpNW)), speed_kt: 0, lane_id: 'TWY_D' })),
+    );
+    out.push(mk({ _id: 'PAPD-1', kind: 'vehicle', callsign: 'PAPD-1', label: 'Police', pos: [fs[0] - 0.0004, fs[1] - 0.0002], heading_deg: 40, speed_kt: 0 }));
+    out.push(mk({ _id: 'STAIR-1', kind: 'vehicle', callsign: 'STAIR-1', label: 'Stairs', pos: [dSE[0] + 0.0005, dSE[1] - 0.0003], heading_deg: 310, speed_kt: 4, lane_id: 'APRON_MAIN' }));
+    out.push(mk({ _id: 'OPS1', kind: 'vehicle', callsign: 'OPS1', label: 'Ops', pos: [dSE[0] + 0.0001, dSE[1] + 0.0004], heading_deg: 310, speed_kt: 0, lane_id: 'TWY_B' }));
+    out.push(mk({ _id: 'FFT4195', kind: 'aircraft', callsign: 'FFT4195', pos: seg(b[0], b[1], 0.3), heading_deg: Math.round(bearing(b[0], b[1])), speed_kt: 0, lane_id: 'TWY_B', hold_short: true }));
+    out.push(mk({ _id: 'UAL2384', kind: 'aircraft', callsign: 'UAL2384', pos: seg(b[0], b[1], 0.2), heading_deg: Math.round(bearing(b[0], b[1])), speed_kt: 6, lane_id: 'TWY_B' }));
     return out;
   }
 
