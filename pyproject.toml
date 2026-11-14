@@ -35,6 +35,8 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.ruff.lint.per-file-ignores]
 # section-6 verify scripts predate the lint config; only real errors (F) are checked there
 "scripts/verify/*.py" = ["E", "W", "I", "UP", "B"]
+# audio generator scripts (from the audio task) keep their long ffmpeg/description lines
+"scripts/audio/*.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

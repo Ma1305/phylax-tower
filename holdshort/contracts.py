@@ -125,6 +125,10 @@ class Transmission(_Model):
         f"{CONFIDENCE_VERIFIED_MIN}.",
     )
     audio_ref: str | None = Field(default=None, description="Path/URL of the audio clip.")
+    flag: str | None = Field(
+        default=None,
+        description='Why a human should look at this call, e.g. "unclear - say again".',
+    )
 
     @model_validator(mode="after")
     def _low_confidence_not_verified(self) -> Transmission:
