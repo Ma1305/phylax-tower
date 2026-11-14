@@ -9,12 +9,13 @@ A denied call raises ``AccessDenied`` and inserts a ``security_events`` document
 (kind read_denied / write_denied) through the unscoped database. The lists are reloaded
 from ``permissions`` at most every ``RELOAD_S`` seconds.
 
-``connect_for(agent)`` opens a client with ``MONGODB_URI_<AGENT>`` when it is set (a
-per-agent Atlas user), else ``MONGODB_URI``.
+``connect_for(agent)`` connects as a generated per-agent Atlas user when Atlas admin
+credentials are set (holdshort/identity), else ``MONGODB_URI_<AGENT>``, else ``MONGODB_URI``.
 """
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -27,6 +28,7 @@ from pymongo.database import Database
 from holdshort.db import get_client
 
 RELOAD_S = 5.0
+log = logging.getLogger("holdshort.access")
 
 READ_METHODS = frozenset({
     "find", "find_one", "aggregate", "count_documents", "estimated_document_count",
@@ -152,7 +154,42 @@ def scoped_db(db: Database, agent: str) -> ScopedDb:
         return s
 
 
-def connect_for(agent: str, **kwargs: Any) -> MongoClient:
-    """A client for this agent: MONGODB_URI_<AGENT> when set, else MONGODB_URI."""
-    uri = os.environ.get(f"MONGODB_URI_{agent.upper()}", "").strip() or None
-    return get_client(uri, **kwargs)
+_identity_logged = False
+
+
+def connect_for(agent: str, *, process: str | None = None, db: str | None = None,
+                **kwargs: Any) -> MongoClient:
+    """A client for this agent: a generated Atlas user when admin credentials are set
+    (holdshort/identity), else MONGODB_URI_<AGENT>, else MONGODB_URI. The choice is recorded
+    in agent_state.<process>.identity (never the password)."""
+    global _identity_logged
+    from holdshort.env import mongodb_db_name
+    from holdshort.identity import Identity, generated_identity, missing
+
+    db_name = db or mongodb_db_name()
+    shared = get_client(None, **kwargs)
+    ident = None
+    if not missing():
+        try:
+            ident = generated_identity(agent, db_name, shared[db_name])
+        except Exception as e:  # noqa: BLE001  (never fail a process over identity)
+            log.warning("identity: generated user for %s failed (%s), falling back",
+                        agent, type(e).__name__)
+    elif not _identity_logged:
+        _identity_logged = True
+        log.info("identity: Atlas admin credentials not set, agents use the shared "
+                 "connection (or MONGODB_URI_<AGENT>)")
+    if ident is None:
+        static = os.environ.get(f"MONGODB_URI_{agent.upper()}", "").strip()
+        ident = Identity("static", static) if static else Identity("shared")
+    try:
+        shared[db_name].agent_state.update_one(
+            {"_id": process or agent},
+            {"$set": {"identity": ident.public(), "updated_at": datetime.now(UTC)}},
+            upsert=True)
+    except Exception as e:  # noqa: BLE001
+        log.warning("identity: could not record identity for %s (%s)", agent, type(e).__name__)
+    if ident.uri is None:
+        return shared
+    shared.close()
+    return get_client(ident.uri, **kwargs)
