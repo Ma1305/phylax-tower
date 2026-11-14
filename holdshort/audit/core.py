@@ -435,16 +435,18 @@ _SYSTEM = (
 
 
 def _llm_from_env():
-    key = os.environ.get("LLM_API_KEY", "").strip()
-    if not key:
+    """The audit chat model from holdshort.llm (task "audit"), or None for provider none."""
+    from holdshort import llm as llm_layer
+
+    if llm_layer.provider() == "none":
         return None
     if os.environ.get("LANGSMITH_API_KEY", "").strip():
         os.environ.setdefault("LANGSMITH_TRACING", "true")
         os.environ.setdefault("LANGSMITH_PROJECT", "holdshort-audit")
-    from langchain_anthropic import ChatAnthropic
+    return llm_layer.chat_model("audit", AUDIT_TIMEOUT_S)
 
-    return ChatAnthropic(model=os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODEL,
-                         api_key=key, max_tokens=1500, timeout=60, max_retries=1)
+
+AUDIT_TIMEOUT_S = 60
 
 
 def _llm_narrative(llm, question: str, items: list[dict]) -> str | None:
@@ -455,14 +457,22 @@ def _llm_narrative(llm, question: str, items: list[dict]) -> str | None:
         cited: list[str] = Field(description="doc_ids cited")
 
     payload = [{**it, "t": it["t"].isoformat()} for it in items]
-    try:
-        out = llm.with_structured_output(AuditNarrative).invoke([
-            ("system", _SYSTEM), ("human", f"Question: {question}\nTimeline: {payload}")])
-    except Exception as e:  # noqa: BLE001  any provider failure -> rule-based fallback
-        from holdshort.env import redact
+    user = f"Question: {question}\nTimeline: {payload}"
+    if llm == "env":  # the shared layer: hard timeout, never raises
+        from holdshort import llm as llm_layer
 
-        log.warning("audit LLM call failed: %s", redact(e))
-        return None
+        out = llm_layer.structured("audit", _SYSTEM, user, AuditNarrative, AUDIT_TIMEOUT_S)
+        if out is None:
+            return None
+    else:
+        try:
+            out = llm.with_structured_output(AuditNarrative).invoke([
+                ("system", _SYSTEM), ("human", user)])
+        except Exception as e:  # noqa: BLE001  any provider failure -> rule-based fallback
+            from holdshort.env import redact
+
+            log.warning("audit LLM call failed: %s", redact(e))
+            return None
     if isinstance(out, dict):
         out = AuditNarrative(**out)
     ids = {it["doc_id"] for it in items}
@@ -477,15 +487,18 @@ def explain(db: Database, question: str, *, tower_id: str = DEFAULT_TOWER,
             llm: Any = "env", now: datetime | None = None) -> dict:
     """Answer an audit question: ``{timeline, narrative, cited, focus, source}``.
 
-    ``llm`` is a LangChain chat model, None (rule-based only) or "env" (ChatAnthropic when
-    LLM_API_KEY is set). The narrative may only cite doc_ids that are in the timeline.
+    ``llm`` is a LangChain chat model, None (rule-based only) or "env" (holdshort.llm task
+    "audit": the configured provider, or rule-based when it is "none").
+    The narrative may only cite doc_ids that are in the timeline.
     """
     focus = parse_question(db, question, tower_id, now)
     items = timeline(db, tower_id, entity=focus["entity"], lane_id=focus["lane_id"],
                      controller_id=focus["controller_id"], around=focus["around"],
                      window=focus["window"])
     if llm == "env":
-        llm = _llm_from_env()
+        from holdshort import llm as llm_layer
+
+        llm = "env" if llm_layer.provider() != "none" else None
     narrative, source = None, "rules"
     if llm is not None and items:
         narrative = _llm_narrative(llm, question, items)

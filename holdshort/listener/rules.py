@@ -1,6 +1,6 @@
 """Offline phraseology labeller: same output shape as the LLM labeller.
 
-Used only when no LLM_API_KEY is configured (or with --labeller rules), so the
+Tried first on every call (and used alone with LLM_PROVIDER=none), so the
 listener keeps working without network access. It recognises standard tower
 phraseology and returns intelligible=False when it cannot make sense of a call,
 which parse() turns into a flagged "say again" transmission. It never guesses.

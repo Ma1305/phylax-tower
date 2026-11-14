@@ -187,3 +187,17 @@ def test_weather_both_directions(db):
         assert [x["proposal_text"] for x in docs] == ["low_vis_v1", "normal_v1"]
     finally:
         _set_active(db, "normal_v1")
+
+
+def test_guard_blocks_unconditional_clearance_from_llm_layer(db, monkeypatch):
+    """The default drafter goes through holdshort.llm; the guard still blocks its output."""
+    from holdshort import llm
+
+    monkeypatch.setenv("LLM_PROVIDER", "vertex")
+    calls = []
+    monkeypatch.setattr(llm, "text", lambda task, system, user, timeout_s: (
+        calls.append((task, timeout_s)) or "Truck one, cross runway zero four"))
+    d = _stop_world(db, conflict=False)
+    out = pa.ProceduresAgent(db).handle(d)
+    assert calls == [("advisor", 20.0)]
+    assert out["rejected"] == "unconditional clearance" and out["source"] == "template"

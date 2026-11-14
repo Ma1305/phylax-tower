@@ -18,7 +18,7 @@ All radio in this repo is synthetic (text-to-speech or tones). No real ATC recor
 ## Run it
 
 Requirements: Python 3.12 with [uv](https://docs.astral.sh/uv/), `ffmpeg` (placeholder tones),
-an Atlas cluster. Put `MONGODB_URI` (and optionally `LLM_API_KEY`, `ELEVENLABS_API_KEY`,
+an Atlas cluster. Put `MONGODB_URI` (and optionally `LLM_PROVIDER`/`VERTEX_*` for Gemini on Vertex AI, see `.env.example`, `ELEVENLABS_API_KEY`,
 `VOICE_ENABLED`) in a gitignored `.env`; copy `.env.example`. Without the optional keys the
 tower degrades: rule/template text instead of the LLM, `truth_text` and tones instead of speech.
 

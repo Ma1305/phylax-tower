@@ -1,4 +1,5 @@
-"""parse(text, context) -> Transmission, using an Anthropic LLM with structured JSON output.
+"""parse(text, context) -> Transmission, rules first, then a model
+(holdshort.llm, structured output) for calls the rules cannot fully parse.
 
 The LLM only labels the call; every value it returns is normalised deterministically
 (holdshort.listener.normalize) and the safety-relevant rules are applied here in code,
@@ -11,12 +12,14 @@ never left to the model:
 
 from __future__ import annotations
 
-import json
+import logging
 import os
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, get_args
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from holdshort.contracts import (
     CONFIDENCE_VERIFIED_MIN,
@@ -34,13 +37,13 @@ from holdshort.listener.normalize import (
 FLAG_UNCLEAR = "unclear - say again"
 FLAG_STOP_NO_CALLSIGN = "stop - no callsign, applies to all traffic"
 
-DEFAULT_MODEL = "claude-opus-5-5"
+log = logging.getLogger("holdshort.listener")
 
 LlmFn = Callable[[str, dict[str, Any]], dict[str, Any] | None]
 """(transcript, context) -> raw label dict (see LABEL_SCHEMA), or None if unparseable.
 
-parse() uses the Anthropic LLM when LLM_API_KEY is set, else the offline labeller in
-holdshort.listener.rules (same output shape)."""
+parse() uses hybrid_label (offline rules first, the holdshort.llm model second) when a
+provider is configured, else the offline labeller in holdshort.listener.rules."""
 
 LABEL_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -85,14 +88,11 @@ instruction none, runway null and at null for other.
 instruction: land|takeoff|cross|hold_short|line_up_wait|taxi|go_around|none.
 runway: the runway number as spoken digits (e.g. "4"), or null. Wind direction is \
 not a runway.
-at: the taxiway/intersection (e.g. "Delta"), or null.
+at: the taxiway/intersection (e.g. "Delta"), or null. A request to cross ("get across", \
+"cross") runway X at a taxiway is kind request, instruction cross, runway X, at the taxiway.
 intelligible: false if the call is broken up, trails off, asks to "say again", or \
 its meaning is unclear. A clear but short call ("stand by") is intelligible.
 """
-
-
-def _model() -> str:
-    return os.environ.get("LLM_MODEL", "").strip() or DEFAULT_MODEL
 
 
 def _history_lines(context: dict[str, Any]) -> str:
@@ -106,64 +106,88 @@ def _history_lines(context: dict[str, Any]) -> str:
     return "\n".join(out) or "(none)"
 
 
-def anthropic_llm(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
-    """Label one transcript with the Anthropic API (structured JSON output)."""
-    import anthropic
+class ParseLabel(BaseModel):
+    """Structured output of the model labeller (same shape as LABEL_SCHEMA)."""
 
-    from holdshort.env import redact, require
+    model_config = ConfigDict(populate_by_name=True)
+    intelligible: bool = Field(
+        description="False if the call is garbled, incomplete or has no clear meaning.")
+    from_: str = Field(alias="from", description="Station transmitting, e.g. AC8646, TOWER.")
+    to: str = Field(description="Station addressed; UNKNOWN if none named.")
+    kind: TransmissionKind
+    instruction: Instruction
+    runway: str | None = Field(default=None, description='Runway digits, e.g. "4", or null.')
+    at: str | None = Field(default=None, description='Taxiway/intersection, e.g. "Delta".')
 
-    key = require("LLM_API_KEY", "Put an Anthropic API key in .env as LLM_API_KEY=...")
-    client = anthropic.Anthropic(api_key=key)
+
+def _user_prompt(text: str, context: dict[str, Any]) -> str:
     speaker = context.get("speaker")
-    user = (
+    return (
         f"Recent calls on frequency:\n{_history_lines(context)}\n\n"
         + (f"Radio identifies the transmitting station as: {speaker}\n" if speaker else "")
         + f"Call to label:\n\"{text}\""
     )
-    try:
-        msg = client.beta.messages.create(
-            model=_model(),
-            max_tokens=4096,
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-            output_config={
-                "effort": "low",
-                "format": {"type": "json_schema", "schema": LABEL_SCHEMA},
-            },
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user}],
-        )
-    except anthropic.APIError as e:
-        print(f"listener: LLM call failed: {redact(e)}")
-        return None
-    if msg.stop_reason in ("refusal", "max_tokens"):
-        print(f"listener: LLM stop_reason={msg.stop_reason}; treating call as unparseable")
-        return None
-    body = next((b.text for b in msg.content if b.type == "text"), "")
-    try:
-        return json.loads(body)
-    except json.JSONDecodeError:
-        return None
+
+
+def llm_label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
+    """Label one transcript with holdshort.llm (task "parse"); None on timeout/failure."""
+    from holdshort import llm
+
+    timeout_s = float(os.environ.get("LLM_PARSE_TIMEOUT_S", "").strip() or 6)
+    out = llm.structured("parse", SYSTEM_PROMPT, _user_prompt(text, context), ParseLabel,
+                         timeout_s)
+    return out.model_dump(by_alias=True) if out is not None else None
+
+
+def rules_complete(label: dict[str, Any] | None) -> bool:
+    """True if the offline rules fully parsed the call: known phraseology, intelligible,
+    sender resolved and an instruction (or a stop / report) recognised."""
+    if not label or not label.get("intelligible"):
+        return False
+    if label.get("from") in (None, "", UNKNOWN):
+        return False
+    kind = label.get("kind")
+    if kind in ("stop", "report"):
+        return True
+    return kind in ("clearance", "request", "readback") and label.get("instruction") != "none"
+
+
+def hybrid_label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
+    """Rules first, model second: the safety path never waits on a model when the
+    phraseology is standard. If the model fails or times out, keep the rules result."""
+    from holdshort.listener import rules
+
+    rl = rules.label(text, context)
+    if rules_complete(rl):
+        log.info("listener parse path=rules")
+        return rl
+    ml = llm_label(text, context)
+    if ml is not None:
+        log.info("listener parse path=llm")
+        return ml
+    log.info("listener parse path=rules-fallback")
+    return rl
 
 
 _NOTICE_SHOWN = False
 
 
 def get_labeller(name: str = "auto") -> LlmFn:
-    """"llm" (Anthropic), "rules" (offline phraseology), or "auto" (llm if LLM_API_KEY set)."""
+    """"llm" (model only), "rules" (offline phraseology), or "auto" (rules first, then
+    the model from holdshort.llm when a provider is configured)."""
     global _NOTICE_SHOWN
-    from holdshort import env  # noqa: F401  (loads .env)
+    from holdshort import llm
     from holdshort.listener import rules
 
     if name == "llm":
-        return anthropic_llm
+        return llm_label
     if name == "rules":
         return rules.label
-    if os.environ.get("LLM_API_KEY", "").strip():
-        return anthropic_llm
     if not _NOTICE_SHOWN:
-        print("listener: LLM_API_KEY not set; using the offline phraseology labeller")
+        print(f"listener: {llm.describe()}")
         _NOTICE_SHOWN = True
+    if llm.provider() != "none":
+        return hybrid_label
     return rules.label
 
 

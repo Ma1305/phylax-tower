@@ -19,6 +19,7 @@ dependencies = [
     "langchain-anthropic>=1.7.10",
     "websockets>=17.4",
     "pytest-timeout>=2.4.0",
+    "langchain-google-genai>=4.5.0",
 ]
 
 [build-system]
