@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Menu } from './Menu';
 import type { AgentMode, DataSource, Permission, PermissionAgent, PermissionPatch, PermissionTier } from '../types';
 
 const AGENTS: PermissionAgent[] = ['listener', 'weather', 'safety', 'procedures'];
@@ -50,21 +51,9 @@ export function AgentPills({ ds, permissions, by, readOnly }: { ds: DataSource; 
               <div className="popover">
                 <div className="pop-title">{cap(id)} agent</div>
                 <label>Mode</label>
-                <div className="seg small" role="group" aria-label={`${id} mode`}>
-                  {MODES.map((m) => (
-                    <button key={m} className={p?.mode === m ? 'on' : ''} disabled={readOnly || !p} onClick={() => p?.mode !== m && set(id, { mode: m })} title={m === 'reactive' ? 'may only warn' : 'may also stop or propose'}>
-                      {m}
-                    </button>
-                  ))}
-                </div>
+                <Menu label={`${id} mode`} value={p?.mode ?? 'reactive'} disabled={readOnly || !p} onChange={(m) => set(id, { mode: m })} options={MODES.map((m) => ({ value: m, label: m }))} />
                 <label>Tier</label>
-                <div className="seg small" role="group" aria-label={`${id} tier`}>
-                  {TIERS.map((t) => (
-                    <button key={t} className={p?.tier === t ? 'on' : ''} disabled={readOnly || !p} onClick={() => p?.tier !== t && set(id, { tier: t })}>
-                      {t.replace('_', ' ')}
-                    </button>
-                  ))}
-                </div>
+                <Menu label={`${id} tier`} value={p?.tier ?? 'needs_approval'} disabled={readOnly || !p} onChange={(t) => set(id, { tier: t })} options={TIERS.map((t) => ({ value: t, label: t.replace('_', ' ') }))} />
                 {readOnly && <p className="pop-note">History: switches are read-only.</p>}
               </div>
             )}

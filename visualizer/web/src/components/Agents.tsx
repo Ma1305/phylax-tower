@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Menu } from './Menu';
 import type { AgentMode, AgentState, DataSource, Permission, PermissionAgent, PermissionPatch, PermissionTier } from '../types';
 
 interface Props {
@@ -74,13 +75,7 @@ export function Agents({ ds, permissions, agentState = [], by, readOnly }: Props
                     </button>
                   ))}
                 </div>
-                <select value={p?.tier ?? 'needs_approval'} disabled={readOnly || !p} onChange={(e) => set(id, { tier: e.target.value as PermissionTier })} aria-label={`${id} tier`}>
-                  {TIERS.map((t) => (
-                    <option key={t} value={t}>
-                      {t.replace('_', ' ')}
-                    </option>
-                  ))}
-                </select>
+                <Menu label={`${id} tier`} value={p?.tier ?? 'needs_approval'} disabled={readOnly || !p} onChange={(t) => set(id, { tier: t })} options={TIERS.map((t) => ({ value: t, label: t.replace('_', ' ') }))} />
               </div>
               {ident && (
               <span className={`ident ident-${agentState.find((x) => x._id === `${id}_agent` || x._id === id)?.identity?.kind}`} data-agent={id} title={ident.title}>

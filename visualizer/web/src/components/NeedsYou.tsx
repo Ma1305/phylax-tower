@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ApiError, type DataSource, type Decision, type Transmission, type World } from '../types';
 import { ago, hhmmss } from '../util';
+import { Menu } from './Menu';
 
 interface Props {
   ds: DataSource;
@@ -49,16 +50,7 @@ export function NeedsYou({ ds, world, stops, pending, decisions, transmissions, 
         {stops.length + list.length > 0 && <span className={`countpill ${stops.length ? 'c-stop' : 'c-warn'}`}>{stops.length + list.length}</span>}
         <span className="grow" />
         {showActAs && (
-          <label className="actas">
-            as
-            <select value={actor} onChange={(e) => onActAs(e.target.value)} disabled={readOnly}>
-              {world.controllers.map((c) => (
-                <option key={c._id} value={c._id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <Menu label="Act as" prefix="Act as" value={actor} onChange={onActAs} disabled={readOnly} options={world.controllers.map((c) => ({ value: c._id, label: c.name }))} />
         )}
         <button className="btn ghost" onClick={onAudit}>
           Audit log
