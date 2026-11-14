@@ -1,9 +1,18 @@
 """Per-agent Atlas identities generated on demand. See README.md."""
 
-from holdshort.identity.atlas import AtlasAdmin, AtlasError, Credentials, credentials, missing
+from holdshort.identity.atlas import (
+    AtlasAdmin,
+    AtlasError,
+    Credentials,
+    credentials,
+    enabled,
+    missing,
+    mode,
+)
 from holdshort.identity.core import (
     Identity,
     IdentityManager,
+    NotReady,
     generated_identity,
     manager,
     role_name,
@@ -11,5 +20,5 @@ from holdshort.identity.core import (
 )
 
 __all__ = ["AtlasAdmin", "AtlasError", "Credentials", "Identity", "IdentityManager",
-           "credentials", "generated_identity", "manager", "missing", "role_name",
-           "role_payload"]
+           "NotReady", "credentials", "enabled", "generated_identity", "manager",
+           "missing", "mode", "role_name", "role_payload"]
