@@ -7,7 +7,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from hssim.engine import Sim
-from hssim.scenarios import crossing, degraded_radio, intruder, low_visibility, normal
+from hssim.scenarios import (
+    crossing,
+    degraded_radio,
+    intruder,
+    laguardia,
+    low_visibility,
+    normal,
+)
 
 
 @dataclass(frozen=True)
@@ -29,6 +36,12 @@ SCENARIOS: dict[str, Scenario] = {s.name: s for s in [
              "cross 04 at D about 25 s before the aircraft gets there.",
              "A critical warning to the tower controller and a stop for TRUCK1 before it "
              "enters the runway; the truck holds short.", crossing.run),
+    Scenario("laguardia", "incident",
+             "The 22 March 2026 runway 4 / taxiway D collision, rebuilt from the NTSB "
+             "preliminary report: Jazz 646 cleared to land, then 'Truck 1 and company' (seven "
+             "vehicles) cleared to cross by the same controller 20 s before the jet arrives.",
+             "A stop for Truck 1, by name, heard within about 13 s of the crossing clearance; "
+             "better still a warning when the crossing is requested.", laguardia.run),
     Scenario("intruder", "incident",
              "A person on foot (or, with --intruder vehicle, an unidentified vehicle) with "
              "no clearance and no radio call is on runway 04 while AC8646 is on final.",

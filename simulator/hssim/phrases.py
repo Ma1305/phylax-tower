@@ -9,7 +9,8 @@ from __future__ import annotations
 import re
 
 DIGITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "niner"]
-TELEPHONY = {"AC": "Air Canada", "DL": "Delta", "UA": "United", "TRUCK": "Truck", "OPS": "Ops"}
+TELEPHONY = {"AC": "Air Canada", "DL": "Delta", "UA": "United", "TRUCK": "Truck", "OPS": "Ops",
+             "JZA": "Jazz", "FFT": "Frontier", "UAL": "United"}
 PHONETIC = {
     "A": "Alpha", "B": "Bravo", "C": "Charlie", "D": "Delta", "E": "Echo", "F": "Foxtrot",
     "G": "Golf", "H": "Hotel", "J": "Juliet", "K": "Kilo", "L": "Lima", "M": "Mike",
