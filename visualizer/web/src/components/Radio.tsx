@@ -27,16 +27,19 @@ interface Props {
   onPlay: (tx: Transmission) => void;
   onEnded: () => void;
   emptyNote: string | null;
+  /** The expanded row (shared with the stream dock, which selects a row when a clip is clicked). */
+  open: string | null;
+  onOpen: (id: string | null) => void;
 }
 
-const WINDOW_MS = 60_000;
-const N = 240;
+export const WINDOW_MS = 60_000;
+export const N = 240;
 const SHORT: Record<string, string> = { tower: 'TWR', ground: 'GND', ops: 'OPS' };
-const short = (s?: Stream) => (s ? (SHORT[s.kind] ?? s.station.slice(0, 3)) : '');
-const startOf = (t: Transmission) => Date.parse(t.t);
-const endOf = (t: Transmission) => (t.t_end ? Date.parse(t.t_end) : startOf(t) + Math.max(1200, t.transcript.length * 65));
+export const short = (s?: Stream) => (s ? (SHORT[s.kind] ?? s.station.slice(0, 3)) : '');
+export const startOf = (t: Transmission) => Date.parse(t.t);
+export const endOf = (t: Transmission) => (t.t_end ? Date.parse(t.t_end) : startOf(t) + Math.max(1200, t.transcript.length * 65));
 
-function tag(t: Transmission, decisions: Decision[]): { text: string; tone: string } | null {
+export function tag(t: Transmission, decisions: Decision[]): { text: string; tone: string } | null {
   if (t.synthetic) {
     const d = t.decision_id ? decisions.find((x) => x._id === t.decision_id) : undefined;
     return { text: 'Phylax', tone: d?.intent_action === 'stop' || t.kind === 'stop' ? 'stop' : 'info' };
@@ -74,7 +77,7 @@ function seeded(t: Transmission): Float32Array {
   return out;
 }
 
-function peaksFor(t: Transmission, url: ((id: string) => string) | null): Float32Array {
+export function peaksFor(t: Transmission, url: ((id: string) => string) | null): Float32Array {
   const id = t.clip_id ?? t._id;
   const hit = peaksCache.get(id);
   if (hit) return hit;
@@ -157,7 +160,7 @@ function ClipWave({ tx, playing, audioRef, url }: { tx: Transmission; playing: b
   return <canvas ref={ref} className="clip-wave" />;
 }
 
-const Meter = () => (
+export const Meter = () => (
   <span className="meter" aria-hidden>
     <i />
     <i />
@@ -166,7 +169,7 @@ const Meter = () => (
 );
 
 /** Listen to one stream: its calls play aloud as they arrive. */
-function ListenButton({ on, onClick }: { on: boolean; onClick: () => void }) {
+export function ListenButton({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
@@ -191,13 +194,9 @@ function ListenButton({ on, onClick }: { on: boolean; onClick: () => void }) {
 export function Radio(p: Props) {
   const [paused, setPaused] = useState(true);
   const [filter, setFilter] = useState('all');
-  const [open, setOpen] = useState<string | null>(null);
-  const [listen, setListen] = useState<string | null>(null);
-  const [lanesOpen, setLanesOpen] = useStored('streams.open');
+  const open = p.open;
+  const setOpen = p.onOpen;
   const [logOff, setLogOff] = useStored('log.collapsed');
-  const canvases = useRef<Record<string, HTMLCanvasElement | null>>({});
-  const latest = useRef(p);
-  latest.current = p;
 
   const shownIds = new Set(p.streams.map((s) => s._id));
   const activeFilter = filter !== 'all' && shownIds.has(filter) ? filter : 'all';
@@ -211,12 +210,7 @@ export function Radio(p: Props) {
   const audible = !!p.nowPlaying && !paused;
   const url = p.mock ? null : p.audioUrl;
 
-  // "Follow live": new clips of the selected stream play as they arrive (the app's solo listening).
-  const want = listen && shownIds.has(listen) ? listen : 'all';
-  const { solo, onSolo } = p;
-  useEffect(() => {
-    if (solo !== want) onSolo(want);
-  }, [want, solo, onSolo]);
+  const want = p.solo;
 
   useEffect(() => {
     const a = p.audioRef.current;
@@ -229,55 +223,11 @@ export function Radio(p: Props) {
     };
   }, [p.audioRef]);
 
-  // One animation loop draws every stream canvas (lane or sparkline): the last 60 s, scrolling right to left.
+  // a row selected from the stream dock scrolls into view
+  const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    let raf = 0;
-    const draw = () => {
-      raf = requestAnimationFrame(draw);
-      const q = latest.current;
-      const T = q.live ? Date.now() : q.viewT;
-      const dpr = window.devicePixelRatio || 1;
-      for (const s of q.streams) {
-        const cv = canvases.current[s._id];
-        if (!cv) continue;
-        const w = cv.clientWidth;
-        const h = cv.clientHeight;
-        if (w < 4) continue;
-        if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
-          cv.width = Math.round(w * dpr);
-          cv.height = Math.round(h * dpr);
-        }
-        const g = cv.getContext('2d');
-        if (!g) continue;
-        g.setTransform(dpr, 0, 0, dpr, 0, 0);
-        g.clearRect(0, 0, w, h);
-        const mid = Math.floor(h / 2);
-        g.fillStyle = '#30363d';
-        g.fillRect(0, mid, w, 1);
-        const xOf = (t: number) => w - ((T - t) / WINDOW_MS) * w;
-        for (const tx of q.transmissions) {
-          if (tx.stream_id !== s._id) continue;
-          const t0 = startOf(tx);
-          const t1 = endOf(tx);
-          if (t0 > T || t1 < T - WINDOW_MS) continue;
-          const pk = peaksFor(tx, q.mock ? null : q.audioUrl);
-          const x0 = xOf(t0);
-          const x1 = xOf(t1);
-          g.fillStyle = q.nowPlaying && tx.clip_id === q.nowPlaying.clipId ? '#4c9aff' : '#8b949e';
-          for (let x = Math.max(0, Math.ceil(x0)); x < Math.min(w - 1, x1); x++) {
-            const amp = Math.round(pk[Math.min(N - 1, Math.floor(((x - x0) / (x1 - x0)) * N))] * (mid - 1));
-            g.fillRect(x, mid - amp, 1, amp * 2 + 1);
-          }
-        }
-        if (h > 20) {
-          g.fillStyle = q.live ? '#4c9aff' : '#d29922';
-          g.fillRect(w - 1, 0, 1, h);
-        }
-      }
-    };
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    if (open) listRef.current?.querySelector(`[data-tx="${open}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [open]);
 
   const playBtn = (t: Transmission, playing: boolean) => {
     const a = p.audioRef.current;
@@ -286,75 +236,13 @@ export function Radio(p: Props) {
       else a.pause();
     } else p.onPlay(t);
   };
-  const onAirOf = (id: string) => upTo.some((t) => t.stream_id === id && p.viewT >= startOf(t) && p.viewT <= endOf(t) + 1500);
 
   return (
     <section className={`radio ${logOff ? 'log-shut' : ''}`}>
-      <header className={`sec-head toggle-head strip ${lanesOpen ? '' : 'chips'}`} onClick={() => setLanesOpen(!lanesOpen)} aria-expanded={lanesOpen} title={lanesOpen ? 'Hide the stream lanes' : 'Show the stream lanes (last 60 s)'}>
-        <i className={`chev ${lanesOpen ? '' : 'shut'}`} />
-        <h2>Streams</h2>
-        {!lanesOpen &&
-          p.streams.map((s) => (
-            <span key={s._id} className="schip">
-              <i className={`dot ${onAirOf(s._id) ? 'on' : ''}`} />
-              {short(s)} <span className="num">{s.frequency_mhz?.toFixed(1)}</span>
-              <canvas
-                className="spark"
-                ref={(el) => {
-                  canvases.current[s._id] = el;
-                }}
-              />
-              <ListenButton on={want === s._id} onClick={() => setListen(want === s._id ? null : s._id)} />
-            </span>
-          ))}
-        {p.streams.length === 0 && <span className="sec-note">{p.emptyNote ?? 'No streams.'}</span>}
-      </header>
-      {lanesOpen && (
-        <div className="lanes">
-          {p.streams.map((s) => {
-            const mine = upTo.filter((t) => t.stream_id === s._id);
-            const last = mine.reduce<Transmission | undefined>((m, t) => (!m || t.t > m.t ? t : m), undefined);
-            const b = last ? tag(last, p.decisions) : null;
-            return (
-              <div key={s._id} className={`slane ${activeFilter === s._id ? 'sel' : ''}`} data-stream={s._id} onClick={() => setFilter(activeFilter === s._id ? 'all' : s._id)} title="Click to show only this stream in the list">
-                <div className="slane-info">
-                  <div className="slane-name">
-                    <i className={`dot ${onAirOf(s._id) ? 'on' : ''}`} />
-                    <b>{short(s)}</b>
-                    <span className="num">{s.frequency_mhz?.toFixed(1)}</span>
-                  </div>
-                  <div className="slane-owner">{ctlName(s.controller_id)}</div>
-                  <ListenButton on={want === s._id} onClick={() => setListen(want === s._id ? null : s._id)} />
-                </div>
-                <div className="slane-main">
-                  <canvas
-                    className="slane-wave"
-                    ref={(el) => {
-                      canvases.current[s._id] = el;
-                    }}
-                  />
-                  <div className="slane-line">
-                    {last ? (
-                      <>
-                        <span className="mono c-who">
-                          {stationName(last.from)} → {stationName(last.to)}
-                        </span>
-                        <span className="slane-text">{last.transcript}</span>
-                        {b && <span className={`tag tone-${b.tone}`}>{b.text}</span>}
-                      </>
-                    ) : (
-                      <span className="slane-text quiet">{p.loading ? 'Loading…' : 'No traffic yet'}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
       <header className="sec-head toggle-head" onClick={() => setLogOff(!logOff)} aria-expanded={!logOff}>
         <i className={`chev ${logOff ? 'shut' : ''}`} />
         <h2>Radio</h2>
+        <span className="countpill">{lines.length}</span>
         <span className="grow" />
         <span className="radio-tools" onClick={(e) => e.stopPropagation()}>
           <div className="seg" role="group" aria-label="Show stream">
@@ -375,12 +263,12 @@ export function Radio(p: Props) {
           <span>
             Listening to <b>{streamOf(want)?.name ?? want}</b> · new calls play aloud as they arrive
           </span>
-          <button className="btn" onClick={() => setListen(null)}>
+          <button className="btn" onClick={() => p.onSolo('all')}>
             Stop
           </button>
         </div>
       )}
-      <div className={`log scroll ${logOff ? 'shut' : ''}`}>
+      <div className={`log scroll ${logOff ? 'shut' : ''}`} ref={listRef}>
         {p.blocked && <div className="calm warn-text">The browser blocked autoplay. Click a row once to allow sound.</div>}
         {lines.length === 0 && p.streams.length > 0 && <div className="calm">{p.loading ? 'Loading transmissions…' : p.live ? 'No transmissions yet.' : 'Nothing had been said at this time.'}</div>}
         {lines.map((t) => {
@@ -391,7 +279,7 @@ export function Radio(p: Props) {
           const dec = t.decision_id ? p.decisions.find((d) => d._id === t.decision_id) : undefined;
           const lane = t.lane_id ? p.world.lanes.find((l) => l._id === t.lane_id)?.name : null;
           return (
-            <div key={t._id} data-clip={t.clip_id ?? ''} className={`clip ${playing ? 'playing' : ''} ${isOpen ? 'open' : ''} ${hasAudio ? '' : 'mute'}`}>
+            <div key={t._id} data-tx={t._id} data-clip={t.clip_id ?? ''} className={`clip ${playing ? 'playing' : ''} ${isOpen ? 'open' : ''} ${hasAudio ? '' : 'mute'}`}>
               <div
                 className="clip-row"
                 onClick={() => {
