@@ -96,7 +96,7 @@ export function Radio(p: Props) {
         for (let i = 0; i < bars.length; i++) {
           let peak = 0;
           for (let k = 0; k < step; k++) peak = Math.max(peak, Math.abs(data[i * step + k] - 128));
-          (bars[i] as HTMLElement).style.transform = `scaleY(${(0.15 + Math.min(1, peak / 70)).toFixed(2)})`;
+          (bars[i] as HTMLElement).style.transform = `scaleY(${(0.15 + Math.min(1, peak / 24)).toFixed(2)})`;
         }
       });
     };
