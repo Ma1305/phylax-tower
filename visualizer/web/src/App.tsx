@@ -180,7 +180,7 @@ export default function App() {
       (m) => {
         setLiveSnap((s) => applyLive(s, m));
         const ev = dbLine(m);
-        if (ev) setDbEvent((p) => (ev.coll === 'objects' && p && p.coll !== 'objects' && Date.now() - p.at < 6000 ? p : { ...ev, n: (p?.n ?? 0) + 1 }));
+        if (ev) setDbEvent((p) => (ev.coll === 'objects' && p && p.coll !== 'objects' && Date.now() - p.at < 12000 ? p : { ...ev, n: (p?.n ?? 0) + 1 }));
         if (m.type === 'transmission' && modeRef.current === 'live' && soloRef.current !== 'all') {
           const t = m.doc as Transmission;
           if (t.stream_id === soloRef.current && t.clip_id && t.audio_id) enqueue({ clipId: t.clip_id, label: txLabel(t) });

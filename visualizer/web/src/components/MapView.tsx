@@ -372,10 +372,9 @@ function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?:
       }
       chip = [a[0] + (b[0] - a[0]) * 0.34 - nx * (off + 34), a[1] + (b[1] - a[1]) * 0.34 - ny * (off + 8)];
     } else {
-      const lo = a[1] > b[1] ? a : b;
-      const s = a[1] > b[1] ? -1 : 1;
+      const hi = a[1] < b[1] ? a : b;
       const long = len > 400;
-      const lp: XY = long ? [a[0] + (b[0] - a[0]) * 0.5 + nx * 16, a[1] + (b[1] - a[1]) * 0.5 + ny * 16 + 5] : [lo[0] + s * ux * 16 + 8, lo[1] + s * uy * 16 + 12];
+      const lp: XY = long ? [(a[1] > b[1] ? a : b)[0] + 16, (a[1] > b[1] ? a : b)[1] + 24] : [hi[0] - 66, hi[1] - 10];
       labels.push({ p: lp, t: `TWY ${lane.designators[0]}` });
       chip = [lp[0] + 30, lp[1] + 24];
     }
@@ -384,7 +383,8 @@ function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?:
     if (!ring.length) return null;
     const q = ring.slice(0, -1).map(px);
     const cen: XY = [q.reduce((s, v) => s + v[0], 0) / q.length, q.reduce((s, v) => s + v[1], 0) / q.length];
-    labels.push({ p: [cen[0], cen[1] + 5], t: 'Apron', anchor: 'middle' });
+    const lowq = q.reduce((m, v) => (v[1] > m[1] ? v : m), q[0]);
+    labels.push({ p: [cen[0] + (lowq[0] - cen[0]) * 0.6, cen[1] + (lowq[1] - cen[1]) * 0.6], t: 'Apron', anchor: 'middle' });
     chip = [cen[0], cen[1] + 30];
   }
   const text = STATE_META[state].label;

@@ -131,10 +131,10 @@ h1, h2, p { margin: 0; }
 .quiet-label { fill: #aeb7c9; font-size: 17px; font-weight: 600; letter-spacing: 0.01em; paint-order: stroke; stroke: var(--bg); stroke-width: 4px; }
 .quiet-label.small { font-size: 14px; fill: #7f8aa3; font-weight: 500; }
 .lane-body { stroke: #2b3242; stroke-linecap: butt; transition: stroke 0.3s; }
-.lane-taxiway .lane-body { stroke: #1b2231; }
+.lane-taxiway .lane-body { stroke: #222a3a; }
 .lane-poly { fill: #101726; stroke: #1b2435; stroke-width: 1; }
 .rwy-center { stroke: #c9cfdb; stroke-width: 1.6; opacity: 0.85; }
-.twy-center { stroke: #c9a227; stroke-width: 1; opacity: 0.55; }
+.twy-center { stroke: #d4ad2e; stroke-width: 1.1; opacity: 0.7; }
 .thr line { stroke: #c9cfdb; stroke-width: 1.6; opacity: 0.9; }
 .holdpoint line { stroke: #e0b83a; stroke-width: 1.4; }
 .lane-glow { stroke: transparent; stroke-linecap: round; opacity: 0.16; }

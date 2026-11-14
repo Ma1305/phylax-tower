@@ -4,7 +4,7 @@ const b = await chromium.launch();
 const p = await b.newPage({ viewport: { width: +w, height: +h } });
 p.on('console', (m) => m.type() === 'error' && console.log('ERR', m.text()));
 p.on('pageerror', (e) => console.log('PAGEERR', e.message));
-await p.goto('http://127.0.0.1:5181/?mock=1');
+await p.goto('http://127.0.0.1:5181/' + (process.env.LIVE ? '' : '?mock=1'));
 await p.waitForTimeout(+wait);
 if (act === 'ground') await p.getByRole('button', { name: /^Ground/ }).first().click();
 if (act === 'history') { const r = await p.locator('.tl-track').boundingBox(); await p.mouse.click(r.x + r.width * 0.55, r.y + r.height / 2); }
