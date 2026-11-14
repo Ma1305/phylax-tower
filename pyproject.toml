@@ -11,6 +11,8 @@ dependencies = [
     "pydantic>=2",
     "fastapi>=0.163.0",
     "uvicorn[standard]>=0.54.0",
+    "langgraph>=1.2.22",
+    "langgraph-checkpoint-mongodb>=0.5.1",
 ]
 
 [build-system]

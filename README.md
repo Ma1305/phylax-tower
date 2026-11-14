@@ -133,3 +133,20 @@ that cites anything outside the timeline is discarded for a deterministic one.
 ```bash
 uv run python -m holdshort.audit "Why was TRUCK1 held?"
 ```
+
+## Checkpoints (LangGraph + MongoDB)
+
+The safety and procedures agent loops are LangGraph graphs (safety: evaluate -> emit ->
+persist; procedures: check -> propose -> done) checkpointed to Atlas with
+`MongoDBSaver` (`checkpoints_<agent>` / `checkpoint_writes_<agent>` in the same database).
+The `thread_id` is the scenario run id: `scenario.runner start` inserts a
+`scenario_runs` document whose `_id` is the run marker. A killed agent loads its
+thread's checkpoint on restart, finishes an interrupted step if it died between nodes,
+catches up only on documents it missed, and skips anything already checkpointed. The
+safety decision is still the deterministic rule engine (no LLM). LangSmith tracing is
+on only if `LANGSMITH_API_KEY` is set.
+
+    scripts/crash_demo.sh   # kill -9 the safety agent mid-run, restart, assert resume + stop
+
+It uses a throwaway `<MONGODB_DB>_crash_demo` database (`$CRASH_DEMO_DB` to override);
+logs go to `logs/crash_demo/`.

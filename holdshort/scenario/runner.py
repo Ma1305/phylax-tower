@@ -13,6 +13,8 @@
     ``text_source="script"``, it builds them from each line's ``expect`` block.
     Mode "audio" feeds the generated clips to the listener (needs the listener and
     scenarios/laguardia/audio/<level>/*.wav).
+  * a scenario_runs document with ``_id`` = the run marker is inserted first; it is the
+    run id the safety/procedures agents use as their LangGraph checkpoint thread_id.
   * METAR events go to the metar collection (the weather agent watches it).
   * simple positions for AC8646 and TRUCK1 go to flight_state once per scenario
     second. TRUCK1 starts crossing after reading back its clearance, unless an
@@ -44,6 +46,7 @@ from holdshort.contracts import (
     FlightState,
     Metar,
     Position,
+    ScenarioRun,
     Transmission,
     to_mongo,
 )
@@ -334,10 +337,16 @@ def start(
 ) -> dict[str, Any]:
     """Set the safety switch (by controller_A), then play the scenario. Returns a summary."""
     run = Run(db, speed=speed, mode=mode, text_source=text_source, audio_level=audio_level)
+    script = load_script(script_path)
+    # the run id (= marker) is the LangGraph thread_id of the agents' checkpoints
+    sr = ScenarioRun(scenario=script.get("scenario", "laguardia"), started_at=datetime.now(UTC),
+                     safety_enabled=safety_enabled, speed=speed, mode=mode)
+    db.scenario_runs.insert_one({"_id": run.marker, **to_mongo(sr)})
+    log.info("scenario run %s", run.marker)
     set_permission(db, "safety", safety_enabled, CONTROLLER)
     log.info("safety %s (by %s); playing at x%g, mode %s", "ON" if safety_enabled else "OFF",
              CONTROLLER, speed, mode)
-    summary = run.play(load_script(script_path))
+    summary = run.play(script)
     summary["safety_enabled"] = safety_enabled
     return summary
 

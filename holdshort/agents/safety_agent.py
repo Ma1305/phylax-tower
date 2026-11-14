@@ -12,6 +12,11 @@ For every inserted transmission (in order) it
    changed callsigns to flight_state with a TTL ``expires_at``.
 
 Callsigns with ``hold_short`` set (held by a stop) are not active on a runway.
+
+Inside a scenario run the four steps are a LangGraph graph (evaluate -> emit -> persist)
+checkpointed to Atlas with thread_id = run id (see ``holdshort.agents._graph``): a killed
+safety agent resumes from its checkpoint and only processes calls it has not seen. The
+decision itself stays the deterministic rule engine; there is no LLM in it.
 """
 
 from __future__ import annotations
@@ -19,11 +24,13 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timedelta
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypedDict
 
+from bson import ObjectId
 from pymongo.database import Database
 
-from holdshort.agents._stream import StreamAgent, main, now
+from holdshort.agents._graph import GraphAgent
+from holdshort.agents._stream import main, now
 from holdshort.contracts import FlightState, Intent, RuleSet, Transmission, to_mongo
 from holdshort.safety.engine import (
     RUNWAY_INSTRUCTIONS,
@@ -105,12 +112,27 @@ def persist(db: Database, updates: dict[str, dict[str, Any]], t: datetime) -> No
         db.flight_state.update_one({"callsign": cs}, {"$set": doc}, upsert=True)
 
 
-class SafetyAgent(StreamAgent):
+class SafetyGraphState(TypedDict, total=False):
+    """Checkpointed per run (JSON-safe: ids are strings, models are JSON dicts)."""
+
+    tx_id: str
+    tx: dict[str, Any]
+    intents: list[dict[str, Any]]
+    updates: dict[str, dict[str, Any]]
+    intent_ids: list[str]
+    last_id: str
+    processed: int
+    stops: int
+
+
+class SafetyAgent(GraphAgent):
     name = "safety"
     collection = "transmissions"
+    state_schema = SafetyGraphState
 
-    def handle(self, doc: dict[str, Any]) -> list[Intent]:
-        tx = Transmission.model_validate(doc)
+    # -- the deterministic steps (shared by handle() and the graph)
+
+    def evaluate_tx(self, tx: Transmission) -> tuple[list[Intent], dict[str, dict[str, Any]]]:
         state = load_state(self.db)
         rules = active_rule_set(self.db)
         intents: list[Intent] = []
@@ -118,13 +140,47 @@ class SafetyAgent(StreamAgent):
             self.log.warning("no active rule set; not evaluating %s", tx.transcript)
         else:
             intents = evaluate(tx, state, rules)
+        return intents, state_updates(state, apply_transmission(state, tx), tx)
+
+    def emit(self, intents: list[Intent]) -> list[ObjectId]:
+        ids = []
         for intent in intents:
             iid = self.db.intents_safety.insert_one(to_mongo(intent)).inserted_id
+            ids.append(iid)
             self.log.info("intent %s: stop %s (%s; %s)", iid, intent.target, intent.reason,
                           intent.conflicts_with)
-        after = apply_transmission(state, tx)
-        persist(self.db, state_updates(state, after, tx), tx.t)
+        return ids
+
+    def handle(self, doc: dict[str, Any]) -> list[Intent]:
+        tx = Transmission.model_validate(doc)
+        intents, updates = self.evaluate_tx(tx)
+        self.emit(intents)
+        persist(self.db, updates, tx.t)
         return intents
+
+    # -- graph
+
+    def graph_input(self, doc: dict[str, Any]) -> SafetyGraphState:
+        tx = Transmission.model_validate(doc)
+        return {"tx_id": str(doc["_id"]), "tx": tx.model_dump(mode="json", by_alias=True)}
+
+    def nodes(self):
+        return [("evaluate", self._n_evaluate), ("emit", self._n_emit),
+                ("persist", self._n_persist)]
+
+    def _n_evaluate(self, s: SafetyGraphState) -> SafetyGraphState:
+        intents, updates = self.evaluate_tx(Transmission.model_validate(s["tx"]))
+        return {"intents": [i.model_dump(mode="json") for i in intents], "updates": updates}
+
+    def _n_emit(self, s: SafetyGraphState) -> SafetyGraphState:
+        ids = self.emit([Intent.model_validate(i) for i in s.get("intents", [])])
+        return {"intent_ids": [str(i) for i in ids],
+                "stops": s.get("stops", 0) + len(ids)}
+
+    def _n_persist(self, s: SafetyGraphState) -> SafetyGraphState:
+        tx = Transmission.model_validate(s["tx"])
+        persist(self.db, s.get("updates", {}), tx.t)
+        return {"last_id": s["tx_id"], "processed": s.get("processed", 0) + 1}
 
 
 if __name__ == "__main__":

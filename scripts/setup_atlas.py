@@ -37,6 +37,7 @@ COLLECTIONS = [
     "gate_state",
     "metar",
     "security_events",
+    "scenario_runs",
 ]
 
 # ------------------------------------------------------------------ schema helpers
@@ -178,7 +179,23 @@ def security_events_schema() -> dict:
     }
 
 
+def scenario_runs_schema() -> dict:
+    """$jsonSchema for scenario_runs (mirrors contracts.ScenarioRun; insert-only)."""
+    return {
+        "bsonType": "object",
+        "required": ["scenario", "started_at", "safety_enabled", "speed", "mode"],
+        "properties": {
+            "scenario": STR,
+            "started_at": DATE,
+            "safety_enabled": BOOL,
+            "speed": {"bsonType": ["double", "int"], "minimum": 0, "exclusiveMinimum": True},
+            "mode": {"bsonType": "string", "enum": ["text", "audio"]},
+        },
+    }
+
+
 VALIDATORS: dict[str, dict] = {
+    "scenario_runs": scenario_runs_schema(),
     "transmissions": transmissions_schema(),
     "metar": metar_schema(),
     "security_events": security_events_schema(),
