@@ -1,0 +1,333 @@
+{
+  "scenario": "laguardia",
+  "tts_engine": "flite-offline",
+  "levels": {
+    "clean": "TTS output, 22.05 kHz mono",
+    "mild": "band-pass 300-3000 Hz, 3:1 compression, light pink noise (~26 dB SNR), squelch, 8 kHz",
+    "medium": "band-pass 350-2800 Hz, 6:1 compression, pink noise (~18 dB SNR), squelch, 8 kHz",
+    "brutal": "band-pass 450-2400 Hz, 12:1 compression + overdrive, heavy pink noise (~11 dB SNR), loud squelch, 8 kHz"
+  },
+  "clips": [
+    {
+      "id": "t01",
+      "kind": "transmission",
+      "speaker": "AC8646",
+      "offset_s": 4,
+      "text": "LaGuardia tower, Air Canada eight six four six, ten mile final, runway four.",
+      "files": {
+        "clean": {
+          "file": "clean/t01.wav",
+          "duration_s": 5.999,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t01.wav",
+          "duration_s": 6.299,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t01.wav",
+          "duration_s": 6.299,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t01.wav",
+          "duration_s": 6.299,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t02",
+      "kind": "transmission",
+      "speaker": "TOWER",
+      "offset_s": 10,
+      "text": "Air Canada eight six four six, LaGuardia tower, wind zero three zero at one two, runway four, cleared to land.",
+      "files": {
+        "clean": {
+          "file": "clean/t02.wav",
+          "duration_s": 7.125,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t02.wav",
+          "duration_s": 7.425,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t02.wav",
+          "duration_s": 7.425,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t02.wav",
+          "duration_s": 7.425,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t03",
+      "kind": "transmission",
+      "speaker": "AC8646",
+      "offset_s": 17,
+      "text": "Cleared to land runway four, Air Canada eight six four six.",
+      "files": {
+        "clean": {
+          "file": "clean/t03.wav",
+          "duration_s": 4.055,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t03.wav",
+          "duration_s": 4.355,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t03.wav",
+          "duration_s": 4.355,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t03.wav",
+          "duration_s": 4.355,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t04",
+      "kind": "transmission",
+      "speaker": "TRUCK1",
+      "offset_s": 30,
+      "text": "LaGuardia tower, Truck one and company, at Delta, request to cross runway four.",
+      "files": {
+        "clean": {
+          "file": "clean/t04.wav",
+          "duration_s": 5.42,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t04.wav",
+          "duration_s": 5.72,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t04.wav",
+          "duration_s": 5.72,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t04.wav",
+          "duration_s": 5.72,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t05",
+      "kind": "transmission",
+      "speaker": "TOWER",
+      "offset_s": 36,
+      "text": "Truck one, stand by.",
+      "files": {
+        "clean": {
+          "file": "clean/t05.wav",
+          "duration_s": 1.795,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t05.wav",
+          "duration_s": 2.095,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t05.wav",
+          "duration_s": 2.095,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t05.wav",
+          "duration_s": 2.095,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t06",
+      "kind": "transmission",
+      "speaker": "TRUCK1",
+      "offset_s": 41,
+      "text": "Tower, Truck one, uh, we're at, uh... Delta, uh... for the, uh, the runway... say again?",
+      "files": {
+        "clean": {
+          "file": "clean/t06.wav",
+          "duration_s": 5.655,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t06.wav",
+          "duration_s": 5.955,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t06.wav",
+          "duration_s": 5.955,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t06.wav",
+          "duration_s": 5.955,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t07",
+      "kind": "transmission",
+      "speaker": "AC8646",
+      "offset_s": 45,
+      "text": "Air Canada eight six four six, four mile final.",
+      "files": {
+        "clean": {
+          "file": "clean/t07.wav",
+          "duration_s": 3.695,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t07.wav",
+          "duration_s": 3.995,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t07.wav",
+          "duration_s": 3.995,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t07.wav",
+          "duration_s": 3.995,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t08",
+      "kind": "transmission",
+      "speaker": "TOWER",
+      "offset_s": 48,
+      "text": "Truck one and company, cross runway four at Delta.",
+      "files": {
+        "clean": {
+          "file": "clean/t08.wav",
+          "duration_s": 3.34,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t08.wav",
+          "duration_s": 3.64,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t08.wav",
+          "duration_s": 3.64,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t08.wav",
+          "duration_s": 3.64,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t09",
+      "kind": "transmission",
+      "speaker": "TRUCK1",
+      "offset_s": 52,
+      "text": "Cross runway four at Delta, Truck one and company.",
+      "files": {
+        "clean": {
+          "file": "clean/t09.wav",
+          "duration_s": 3.19,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t09.wav",
+          "duration_s": 3.49,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t09.wav",
+          "duration_s": 3.49,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t09.wav",
+          "duration_s": 3.49,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "t10",
+      "kind": "transmission",
+      "speaker": "TOWER",
+      "offset_s": 68,
+      "text": "Stop, stop, stop!",
+      "files": {
+        "clean": {
+          "file": "clean/t10.wav",
+          "duration_s": 1.855,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/t10.wav",
+          "duration_s": 2.155,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/t10.wav",
+          "duration_s": 2.155,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/t10.wav",
+          "duration_s": 2.155,
+          "sample_rate": 8000
+        }
+      }
+    },
+    {
+      "id": "overlap_t06_t07",
+      "kind": "overlap",
+      "stepped_on": [
+        "t06",
+        "t07"
+      ],
+      "second_starts_after_ms": 1200,
+      "files": {
+        "clean": {
+          "file": "clean/overlap_t06_t07.wav",
+          "duration_s": 5.655,
+          "sample_rate": 22050
+        },
+        "mild": {
+          "file": "mild/overlap_t06_t07.wav",
+          "duration_s": 5.955,
+          "sample_rate": 8000
+        },
+        "medium": {
+          "file": "medium/overlap_t06_t07.wav",
+          "duration_s": 5.955,
+          "sample_rate": 8000
+        },
+        "brutal": {
+          "file": "brutal/overlap_t06_t07.wav",
+          "duration_s": 5.955,
+          "sample_rate": 8000
+        }
+      }
+    }
+  ]
+}
