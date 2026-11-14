@@ -1,4 +1,4 @@
-"""CLI for the action gate: run it, or approve / revoke / set-permission."""
+"""CLI for the action gate: run it, or approve / reject / revoke / set-permission."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 
 from holdshort.db import get_client
 from holdshort.env import mongodb_db_name, redact
-from holdshort.gate import Gate, GateError, approve, revoke, set_permission
+from holdshort.gate import Gate, GateError, approve, reject, revoke, set_permission
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -18,16 +18,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--db", default=None, help="database (default: MONGODB_DB)")
     sub = parser.add_subparsers(dest="cmd")
-    p = sub.add_parser("approve", help="approve a pending intent")
-    p.add_argument("intent_id")
+    p = sub.add_parser("approve", help="approve a pending decision")
+    p.add_argument("decision_id")
     p.add_argument("controller")
+    p = sub.add_parser("reject", help="reject a pending decision")
+    p.add_argument("decision_id")
+    p.add_argument("controller")
+    p.add_argument("reason", nargs="?")
     p = sub.add_parser("revoke", help="revoke a decision")
     p.add_argument("decision_id")
     p.add_argument("controller")
-    p = sub.add_parser("set-permission", help="flip an agent or the system switch")
+    p = sub.add_parser("set-permission", help="change an agent's switch, mode or tier")
     p.add_argument("agent")
-    p.add_argument("state", choices=["on", "off"])
     p.add_argument("by")
+    p.add_argument("--enabled", choices=["on", "off"])
+    p.add_argument("--mode", choices=["reactive", "proactive"])
+    p.add_argument("--tier", choices=["autonomous", "needs_approval", "never"])
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
@@ -35,11 +41,16 @@ def main(argv: list[str] | None = None) -> int:
     db = client[args.db or mongodb_db_name()]
     try:
         if args.cmd == "approve":
-            print(approve(db, args.intent_id, args.controller)["_id"])
+            print(approve(db, args.decision_id, args.controller)["_id"])
+        elif args.cmd == "reject":
+            print(reject(db, args.decision_id, args.controller, args.reason)["_id"])
         elif args.cmd == "revoke":
             print(revoke(db, args.decision_id, args.controller)["_id"])
         elif args.cmd == "set-permission":
-            set_permission(db, args.agent, args.state == "on", args.by)
+            enabled = None if args.enabled is None else args.enabled == "on"
+            doc = set_permission(db, args.agent, args.by, enabled=enabled, mode=args.mode,
+                                 tier=args.tier)
+            print(f"{doc['_id']}: enabled={doc['enabled']} mode={doc['mode']} tier={doc['tier']}")
         else:
             gate = Gate(db)
             signal.signal(signal.SIGTERM, lambda *_: gate.stop())
@@ -49,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
                 pass
         return 0
     except GateError as e:
-        print(f"ERROR: {e}", file=sys.stderr)
+        print(f"ERROR: {e.code}: {e.detail}", file=sys.stderr)
         return 1
     except Exception as e:  # never leak the connection string
         print(f"FAIL: {type(e).__name__}: {redact(e)}", file=sys.stderr)
