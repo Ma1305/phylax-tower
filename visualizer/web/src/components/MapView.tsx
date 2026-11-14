@@ -119,6 +119,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
   const lanes = [...world.lanes].sort((a, b) => order[a.kind] - order[b.kind]);
   const laneOf = (id: string | null) => world.lanes.find((l) => l._id === id);
   const thrPx = geom.final ? mpx(geom.final.thr) : null;
+  const placed: number[][] = [[0, 0, 250, 56], [size.w - 250, 0, size.w, 56]];
 
   return (
     <div className="map" ref={ref}>
@@ -172,17 +173,6 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
             const h = 120 * scale;
             return <rect key={i} className="terminal" x={-w / 2} y={-h / 2} width={w} height={h} transform={`translate(${c[0]},${c[1]}) rotate(${t.ang})`} />;
           })}
-        {!far &&
-          geom.termLabel &&
-          (() => {
-            const c = mpx(geom.termLabel);
-            return (
-              <text x={c[0]} y={c[1] + 5} className="quiet-label small">
-                Terminals
-              </text>
-            );
-          })()}
-
         {lanes.map((l) => (
           <LaneShape key={l._id} lane={l} state={statusOf(l._id)?.state ?? 'clear'} px={px} scale={scale} far={far} dim={dim(l._id)} owned={ownedLanes?.has(l._id) ?? false} />
         ))}
@@ -207,7 +197,7 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
           <LaneLabel key={l._id} lane={l} status={statusOf(l._id)} px={px} far={far} dim={dim(l._id)} scale={scale} />
         ))}
 
-        {objects.map((o, idx) => {
+        {objects.map((o) => {
           const p = px(o.position.coordinates);
           const name = o.callsign ?? o.label ?? o._id;
           const air = o.status === 'airborne';
@@ -229,9 +219,25 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
                 : laneOf(o.lane_id)?.kind === 'runway'
                   ? `on runway ${laneOf(o.lane_id)!.designators.join('/')}`
                   : '';
-          const below = idx % 2 === 1;
-          const lx = 16;
-          const ly = below ? 20 : sub ? -18 : -8;
+          // place the tag where it is clear of the tags already placed and of the two map controls
+          const tw = Math.max(name.length * 7.6, sub.length * 6.4) + 6;
+          const th = sub ? 30 : 16;
+          const cands: [number, number, boolean][] = [[16, -18, false], [16, 24, false], [-16, -18, true], [-16, 24, true], [16, -50, false], [16, 56, false], [-16, -50, true], [-16, 56, true]];
+          let pick = cands[0];
+          if (showLabel) {
+            for (const c of cands) {
+              const x0 = p[0] + (c[2] ? c[0] - tw : c[0]);
+              const y0 = p[1] + c[1] - 12;
+              if (!placed.some((r) => x0 < r[2] && x0 + tw > r[0] && y0 < r[3] && y0 + th > r[1])) {
+                pick = c;
+                break;
+              }
+            }
+            const x0 = p[0] + (pick[2] ? pick[0] - tw : pick[0]);
+            placed.push([x0, p[1] + pick[1] - 12, x0 + tw, p[1] + pick[1] - 12 + th]);
+          }
+          const [lx, ly, endAnchor] = pick;
+          const below = ly > 0;
           return (
             <g key={o._id} className={`obj obj-${o.kind} ${air ? 'air' : 'gnd'} ${smooth ? 'smooth' : ''} ${hot ? 'hot' : ''}`} style={{ transform: `translate(${p[0]}px, ${p[1]}px)` }}>
               <title>{`${name} · ${o.kind} · ${o.status}${o.lane_id ? ' · on ' + o.lane_id : ''}`}</title>
@@ -239,8 +245,8 @@ export function MapView({ world, objects, laneStatus, ownedLanes, flagged, smoot
               <ObjGlyph o={o} small={far} />
               {showLabel && (
                 <>
-                  <line x1={6} y1={below ? 6 : -6} x2={lx - 3} y2={below ? ly - 6 : ly + 4} className="leader" />
-                  <text x={lx} y={ly} className="obj-label">
+                  <line x1={lx > 0 ? 6 : -6} y1={below ? 6 : -6} x2={lx > 0 ? lx - 3 : lx + 3} y2={below ? ly - 12 : ly + (sub ? 18 : 4)} className="leader" />
+                  <text x={lx} y={ly} textAnchor={endAnchor ? 'end' : 'start'} className="obj-label">
                     <tspan className="obj-name">{name}</tspan>
                     {sub && (
                       <tspan x={lx} dy={14} className="obj-data">
@@ -366,7 +372,7 @@ function LaneLabel({ lane, status, px, far, dim, scale }: { lane: Lane; status?:
         labels.push({ p: [a[0] + ux * 30 + nx * off, a[1] + uy * 30 + ny * off + 6], t: `RWY ${lane.designators[0]}` });
         labels.push({ p: [b[0] - ux * 10 + nx * off, b[1] - uy * 10 + ny * off + 6], t: `RWY ${lane.designators[1] ?? ''}` });
       }
-      chip = [a[0] + (b[0] - a[0]) * 0.3 - nx * (off + 36), a[1] + (b[1] - a[1]) * 0.3 - ny * (off + 6)];
+      chip = uy < 0 ? [a[0] + (b[0] - a[0]) * 0.3 - nx * (off + 36), a[1] + (b[1] - a[1]) * 0.3 - ny * (off + 6)] : [a[0] + ux * 30 + nx * off + 96, a[1] + uy * 30 + ny * off + 2];
     } else {
       const hi = a[1] < b[1] ? a : b;
       const long = len > 400;
