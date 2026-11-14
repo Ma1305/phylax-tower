@@ -259,9 +259,9 @@ def test_api_flow(api, db):
     assert r.status_code == 200 and r.json()["mode"] == "reactive"
     assert api.post("/control/permissions/safety",
                     json={"by": "ctl_sup", "tier": "bogus"}).status_code == 400
-    assert api.post("/control/permissions/nobody", json={"by": "x",
+    assert api.post("/control/permissions/nobody", json={"by": "ctl_sup",
                                                         "enabled": True}).status_code == 404
-    assert api.post("/control/permissions/safety", json={"by": "x"}).status_code == 400
+    assert api.post("/control/permissions/safety", json={"by": "ctl_sup"}).status_code == 400
 
 
 def test_api_reject(api, db):
@@ -294,3 +294,16 @@ def test_api_decision_log(api, db):
     assert r.json()["decisions"] == []
     assert len(api.get("/control/decisions", params={"limit": 1}).json()["decisions"]) == 1
     assert api.get("/control/decisions", params={"limit": 0}).status_code == 422
+
+
+def test_api_permissions_author_must_be_a_real_controller(api, db):
+    """An unknown or missing author cannot change an agent switch and nothing is written."""
+    before = db.permissions.find_one({"_id": "safety"})
+    n_events = db.state_events.count_documents({"kind": "permission"})
+    r = api.post("/control/permissions/safety", json={"by": "nobody", "mode": "reactive"})
+    assert r.status_code == 404 and r.json()["detail"]["error"] == "not_found"
+    assert api.post("/control/permissions/safety", json={"mode": "reactive"}).status_code == 422
+    assert db.permissions.find_one({"_id": "safety"}) == before
+    assert db.state_events.count_documents({"kind": "permission"}) == n_events
+    ok = api.post("/control/permissions/safety", json={"by": "ctl_sup", "mode": "reactive"})
+    assert ok.status_code == 200 and ok.json()["by"] == "ctl_sup"

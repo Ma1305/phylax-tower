@@ -568,8 +568,8 @@ select { height: 28px; background: var(--bg); border: 1px solid var(--line); bor
 .listen:hover { border-color: var(--blue); color: var(--text); }
 .listen.on { color: var(--blue); border-color: var(--blue); }
 .schip .listen { border: 0; background: none; padding: 0 2px; margin-left: auto; }
-.slane-info .listen { align-self: flex-start; }
-.slane { grid-template-columns: 124px minmax(0, 1fr); height: 64px; }
+.slane-info .listen { align-self: flex-start; white-space: nowrap; max-width: 100%; }
+.slane { grid-template-columns: 156px minmax(0, 1fr); height: 64px; }
 .meter { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 10px; }
 .meter i { width: 2px; background: var(--blue); animation: meter 0.9s ease-in-out infinite; }
 .meter i:nth-child(2) { animation-delay: -0.3s; }

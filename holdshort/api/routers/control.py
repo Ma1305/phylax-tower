@@ -150,6 +150,12 @@ def revoke(body: DecisionBody, db: Db) -> dict:
 
 @router.post("/permissions/{agent}")
 def permissions(agent: str, body: PermissionBody, db: Db) -> dict:
+    # `by` must be a real, active controller: an unknown id used to be accepted and written
+    # into the audit trail as the author of the change
+    ctl = db.controllers.find_one({"_id": body.by})
+    if ctl is None or ctl.get("active") is False:
+        raise HTTPException(
+            404, {"error": "not_found", "detail": f"unknown controller {body.by!r}"})
     try:
         return jsonable(gate.set_permission(
             db, agent, body.by, enabled=body.enabled, mode=body.mode, tier=body.tier

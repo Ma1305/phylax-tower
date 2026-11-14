@@ -56,16 +56,18 @@ class _Body(BaseModel):
 
 
 class ObjectIn(_Body):
-    object_id: str = Field(min_length=1)
+    object_id: str = Field(min_length=1, max_length=64)
     kind: c.ObjectKind
-    callsign: c.Callsign | None = None
-    label: str | None = None
+    callsign: c.Callsign | None = Field(default=None, max_length=16)
+    label: str | None = Field(default=None, max_length=200)
     status: c.ObjectStatus
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
-    alt_ft: float | None = None
-    heading_deg: float | None = None
-    speed_kt: float | None = None
+    # finite and physically plausible: NaN/Infinity or a negative speed would be stored and
+    # then break JSON consumers (the visualizer) and the safety rules
+    alt_ft: float | None = Field(default=None, ge=-2000, le=60000, allow_inf_nan=False)
+    heading_deg: float | None = Field(default=None, ge=0, le=360, allow_inf_nan=False)
+    speed_kt: float | None = Field(default=None, ge=0, le=1000, allow_inf_nan=False)
 
 
 class PositionsIn(_Body):

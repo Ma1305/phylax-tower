@@ -108,18 +108,82 @@ def test_positions_errors(api):
     assert api.post(p, json={"objects": big}).status_code == 400
 
 
-def test_positions_200_batch_fast(api, test_db):
-    lon0, lat0 = -73.885, 40.770
-    objs = [obj(f"BATCH{i}", lon0 + i * 1e-5, lat0 + i * 1e-5, speed_kt=5)
-            for i in range(200)]
-    api.post("/ingest/positions", json={"objects": objs[:1]})  # warm caches
-    t0 = time.perf_counter()
-    r = api.post("/ingest/positions", json={"objects": objs})
-    elapsed = time.perf_counter() - t0
-    assert r.status_code == 200 and r.json()["accepted"] == 200
-    assert len(r.json()["lanes"]) == 200
-    assert test_db.objects.count_documents({"_id": {"$regex": "^BATCH"}}) == 200
-    assert elapsed < 1.0, f"200 objects took {elapsed:.2f}s"
+def test_positions_200_batch_fast(test_db):
+    """A 200-object batch costs the same number of database commands as a 1-object batch
+    (no per-object round trips). Wall-clock time depends on the network to Atlas, so it only
+    gets a loose hang guard instead of a tight limit."""
+    from pymongo import monitoring
+
+    class Count(monitoring.CommandListener):
+        def __init__(self):
+            self.names = []
+
+        def started(self, event):
+            self.names.append(event.command_name)
+
+        def succeeded(self, event):
+            pass
+
+        def failed(self, event):
+            pass
+
+    counter = Count()
+    from holdshort.db import get_client
+    client = get_client(event_listeners=[counter])
+    try:
+        db = client[test_db.name]
+        a = FastAPI()
+        a.state.db = db
+        a.include_router(router)
+        api = TestClient(a)
+        lon0, lat0 = -73.885, 40.770
+        objs = [obj(f"BATCH{i}", lon0 + i * 1e-5, lat0 + i * 1e-5, speed_kt=5)
+                for i in range(200)]
+        api.post("/ingest/positions", json={"objects": objs[:1]})  # warm caches
+        counter.names.clear()
+        api.post("/ingest/positions", json={"objects": objs[:1]})
+        one = [n for n in counter.names if n not in {"hello", "isMaster", "ping"}]
+        counter.names.clear()
+        t0 = time.perf_counter()
+        r = api.post("/ingest/positions", json={"objects": objs})
+        elapsed = time.perf_counter() - t0
+        many = [n for n in counter.names if n not in {"hello", "isMaster", "ping"}]
+        assert r.status_code == 200 and r.json()["accepted"] == 200
+        assert len(r.json()["lanes"]) == 200
+        assert db.objects.count_documents({"_id": {"$regex": "^BATCH"}}) == 200
+        assert len(many) == len(one), f"commands grew with batch size: {one} vs {many}"
+        assert len(many) <= 6, many
+        assert elapsed < 30, f"200 objects took {elapsed:.2f}s (hang?)"
+    finally:
+        client.close()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("callsign", "A" * 100_000), ("label", "x" * 100_000), ("object_id", "Z" * 1000),
+])
+def test_positions_reject_oversized_text(api, test_db, field, value):
+    """Unbounded text would be stored in objects/positions and echoed into intents and the
+    audit narrative."""
+    o = obj("BIGTXT1", *D_CROSSING)
+    o[field] = value
+    assert api.post("/ingest/positions", json={"objects": [o]}).status_code == 400
+    assert test_db.objects.count_documents({"_id": {"$in": ["BIGTXT1", value]}}) == 0
+
+
+@pytest.mark.parametrize("field,value", [
+    ("speed_kt", float("inf")), ("speed_kt", float("nan")), ("speed_kt", -50),
+    ("heading_deg", 9999), ("heading_deg", -1), ("heading_deg", float("inf")),
+    ("alt_ft", float("inf")), ("alt_ft", 1e9),
+])
+def test_positions_reject_non_finite_or_impossible_numbers(api, test_db, field, value):
+    """Infinity/NaN or an impossible speed, heading or altitude is a 400 and is never stored
+    (it would break JSON consumers such as the visualizer)."""
+    body = json.dumps({"objects": [obj("BADNUM1", *D_CROSSING, **{field: value})]},
+                      allow_nan=True)
+    r = api.post("/ingest/positions", content=body,
+                 headers={"Content-Type": "application/json"})
+    assert r.status_code == 400, r.text
+    assert test_db.objects.find_one({"_id": "BADNUM1"}) is None
 
 
 def test_remove(api, test_db):
@@ -207,15 +271,18 @@ def test_weather(api, test_db):
 def test_streams_upsert(api, test_db):
     body = {"id": "LGA_APP", "tower_id": "LGA", "name": "Approach 120.8", "kind": "approach",
             "frequency_mhz": 120.8, "controller_id": "ctl_local", "station": "APPROACH"}
-    assert api.post("/ingest/streams", json=body).status_code == 200
-    assert api.post("/ingest/streams", json={**body, "name": "App"}).status_code == 200
-    assert test_db.streams.find_one({"_id": "LGA_APP"})["name"] == "App"
-    r = api.post("/ingest/transcripts", json={"stream_id": "LGA_APP", "t_start": iso(),
-                                              "text": "hello"})
-    assert r.status_code == 202
-    assert api.post("/ingest/streams", json={**body, "kind": "x"}).status_code == 400
-    assert api.post("/ingest/streams", json={**body, "controller_id": "nobody"}
-                    ).status_code == 404
+    try:
+        assert api.post("/ingest/streams", json=body).status_code == 200
+        assert api.post("/ingest/streams", json={**body, "name": "App"}).status_code == 200
+        assert test_db.streams.find_one({"_id": "LGA_APP"})["name"] == "App"
+        r = api.post("/ingest/transcripts", json={"stream_id": "LGA_APP", "t_start": iso(),
+                                                  "text": "hello"})
+        assert r.status_code == 202
+        assert api.post("/ingest/streams", json={**body, "kind": "x"}).status_code == 400
+        assert api.post("/ingest/streams", json={**body, "controller_id": "nobody"}
+                        ).status_code == 404
+    finally:  # keep the shared session database as other test files expect it
+        test_db.streams.delete_one({"_id": "LGA_APP"})
 
 
 def test_runs(api, test_db):
