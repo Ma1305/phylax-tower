@@ -6,6 +6,7 @@
     python -m hssim run crossing --stub --auto-stop 6 --speed 20 --no-audio   # no tower needed
     python -m hssim warm all                 # synthesise and cache every line of speech
     python -m hssim stub --port 8000         # a stand-in tower for development
+    python -m hssim panel                    # a web page with a Start button per scenario
     python -m hssim serve                    # normal traffic forever + inject incidents
     python -m hssim inject crossing          # ... into a running `serve`
 """
@@ -324,6 +325,12 @@ def main(argv: list[str] | None = None) -> int:
     _common(p_serve)
     p_serve.add_argument("--control-port", type=int, default=8200)
     p_serve.add_argument("--control-host", default="127.0.0.1")
+    p_panel = sub.add_parser("panel", help="a web page with a Start button per scenario")
+    _common(p_panel)
+    p_panel.add_argument("--control-port", type=int, default=8200)
+    p_panel.add_argument("--control-host", default="127.0.0.1")
+    p_panel.add_argument("--visualizer-url", default="http://localhost:5180",
+                         help="where the page's link to the visualizer points")
     p_inject = sub.add_parser("inject", help="queue an incident in a running `serve`")
     p_inject.add_argument("scenario", choices=sorted(n for n in SCENARIOS if n != "normal"))
     p_inject.add_argument("--control", default="http://127.0.0.1:8200")
@@ -368,6 +375,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == "serve":
             asyncio.run(serve(args))
+            return 0
+        if args.cmd == "panel":
+            from hssim.panel import serve_panel
+
+            asyncio.run(serve_panel(args))
             return 0
         outcome = asyncio.run(run_scenario(args))
     except KeyboardInterrupt:
