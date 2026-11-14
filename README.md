@@ -36,3 +36,16 @@ and an Atlas cluster you can reach.
 `holdshort/contracts.py` is the single source of truth for documents; the validators
 in `scripts/setup_atlas.py` read their enums from it. `SETUP_STATUS.md` covers the
 VM setup checks in `scripts/verify/`.
+
+## Audit agent
+
+`holdshort/audit/` is read-only (aggregate/distinct only). `timeline(entity, around=None)`
+runs one aggregation over transmissions, `intents_*`, decisions, permissions and
+security_events and returns items `{t, kind, actor, summary, rule, authorized_by,
+approved_by, doc_id}` in scenario order. `explain(question)` uses the LLM (`LLM_API_KEY`,
+`LLM_MODEL`) to pick the entity/time and write a narrative citing `[doc_id]`s; a narrative
+that cites anything outside the timeline is discarded for a deterministic one.
+
+```bash
+uv run python -m holdshort.audit "Why was TRUCK1 held?"
+```
