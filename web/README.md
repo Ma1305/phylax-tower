@@ -42,24 +42,28 @@ Incoming WS frames: `{type: "transmission"|"decision"|"permission"|"state"|"snap
 `state` docs with `callsign` are treated as `flight_state`, all others as `runway_status`.
 `snapshot.doc` = `{transmissions, decisions, permissions, flight_state, runway_status}`.
 
-Outgoing:
+Decision frames carry `intent_action` plus a read-only `intent` view
+(`{action, target, runway, reason, conflicts_with, proposal_text}`) added by the
+API; `normDecision()` in `src/feed.ts` maps them onto the UI's fields.
+
+Outgoing (all REST; the change stream echoes the result back over the WS):
 
 | control | request |
 |---|---|
-| agent toggles + Master | WS `{type: "set_permission", agent, enabled}` (falls back to `POST /permissions/{agent}` `{enabled, by}` if the socket is down) |
-| Approve / Reject | `POST /approve` `{decision_id, approved_by, approve: true\|false}` |
-| Lift stop | `POST /revoke` `{decision_id, by}` |
-| Play / Reset / Rogue | `POST /scenario/start`, `POST /scenario/reset`, `POST /rogue` |
-
-The request bodies are a best guess until the api task lands. They all live
-in one place (`src/feed.ts`, `LiveFeed`).
+| agent toggles + Master | `POST /permissions/{agent}` `{enabled, by: "controller_A"}` |
+| Approve | `POST /approve` `{intent_id, controller}` |
+| Reject | `POST /revoke` `{decision_id: <pending decision>, controller}` (the gate has no reject; a revoked pending decision can't be approved) |
+| Lift stop | `POST /revoke` `{decision_id, controller}` |
+| Play | `POST /scenario/start` `{safety_enabled: <Safety toggle>, mode: "text"}` |
+| Reset / Rogue | `POST /scenario/reset`, `POST /rogue` (-> `{ok, result: [security_event…]}`) |
 
 ## How the map moves
 
 `src/sim.ts` works out positions from the event log and the scenario time
 alone:
 
-* The jet passes D 98 s after its landing clearance.
+* The jet passes D 63 s after its landing clearance live (the script's
+  `conflict_offset_s`), 98 s in the mock replay.
 * The convoy starts 2 s after its crossing clearance.
 * An executed stop decision whose `notified` contains `TRUCK1` holds the convoy
   at the line.

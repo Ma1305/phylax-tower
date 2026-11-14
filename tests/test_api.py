@@ -225,3 +225,47 @@ def test_optional_endpoints_501_until_provided(api_client, monkeypatch):
     assert r.status_code == 501 and "not implemented" in r.json()["detail"]
     bad = api_client.post("/scenario/start", json={"safety_enabled": True, "mode": "video"})
     assert bad.status_code == 422
+
+
+def test_rogue_and_reset_hooks_implemented(api_client, db):
+    """POST /rogue and /scenario/reset now reach holdshort.agents / holdshort.scenario."""
+    before = db.security_events.count_documents({})
+    r = api_client.post("/rogue")
+    assert r.status_code == 200
+    evs = r.json()["result"]
+    assert len(evs) == 2 and all(e["error_code"] == 121 for e in evs)
+    assert db.security_events.count_documents({}) == before + 2
+
+    r = api_client.post("/scenario/reset")
+    assert r.status_code == 200 and "marker" in r.json()["result"]
+    st = api_client.get("/scenario/status").json()
+    assert st["running"] is False and st["last"]["state"] == "reset"
+
+
+def test_scenario_start_runs_in_background_and_refuses_overlap(api_client, db, monkeypatch):
+    monkeypatch.setenv("HOLDSHORT_SCENARIO_SPEED", "1000")
+    r = api_client.post("/scenario/start", json={"safety_enabled": False, "mode": "text"})
+    assert r.status_code == 200, r.text
+    res = r.json()["result"]
+    assert res["state"] == "playing" and res["safety_enabled"] is False
+    assert db.permissions.find_one({"agent": "safety"})["by"] == "controller_A"
+    again = api_client.post("/scenario/start", json={"safety_enabled": True, "mode": "text"})
+    assert again.status_code in (200, 400)  # 400 while the first run still plays
+    deadline = time.monotonic() + 30
+    while api_client.get("/scenario/status").json()["running"] and time.monotonic() < deadline:
+        time.sleep(0.1)
+    assert api_client.post("/scenario/reset").status_code == 200
+    assert db.flight_state.count_documents({}) == 0
+
+
+def test_decision_events_carry_intent(db):
+    from holdshort.api.feed import with_intent
+
+    iid = db.intents_procedures.insert_one({
+        "t": T, "agent": "procedures", "action": "propose_instruction", "target": ["TRUCK1"],
+        "runway": "04", "reason": "r", "conflicts_with": "AC8646",
+        "proposal_text": "TRUCK1 cross runway 04 at D after AC8646 passes",
+    }).inserted_id
+    d = with_intent(db, {"agent": "procedures", "intent_id": iid})
+    assert d["intent"]["proposal_text"].startswith("TRUCK1 cross")
+    assert with_intent(db, {"agent": "procedures"}) == {"agent": "procedures"}

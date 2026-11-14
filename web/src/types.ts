@@ -37,7 +37,9 @@ export interface Decision {
   _id?: unknown;
   t: AnyDate;
   agent: string;
-  action?: string; // stop | propose_instruction | close_runway | reopen_runway | set_rule_set
+  intent_action?: string; // as stored in Atlas (contracts.Decision)
+  intent?: Record<string, unknown> | null; // API view of the intent (proposal_text, reason, ...)
+  action?: string; // = intent_action (normalised in feed.ts): stop | propose_instruction | close_runway | reopen_runway | set_rule_set
   outcome?: "executed" | "rejected" | "pending_approval" | "revoked";
   rule?: string | null;
   reason?: string | null;

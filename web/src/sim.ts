@@ -67,7 +67,11 @@ export function isStop(d: Decision): boolean {
   return d.action === "stop" || (d.auto_alert ?? "").toUpperCase() === "STOP";
 }
 
-export function buildTimeline(tx: Transmission[], decisions: Decision[]): Timeline {
+/** Live scenario (scenarios/laguardia/script.json): landing clearance at +10 s,
+ *  conflict_offset_s 73 -> the jet reaches D 63 s after its landing clearance. */
+export const LIVE_LANDING_TO_D_S = 63;
+
+export function buildTimeline(tx: Transmission[], decisions: Decision[], landingToD = LANDING_TO_D_S): Timeline {
   const landing = tx.find(
     (x) => x.instruction === "land" && x.kind !== "readback" && normCallsign(x.to) === "AC8646",
   );
@@ -84,7 +88,7 @@ export function buildTimeline(tx: Transmission[], decisions: Decision[]): Timeli
     (d) => d.outcome === "executed" && d.action === "propose_instruction" && !!d.approved_by && mentions(d, "TRUCK1"),
   );
   const landingT = landing ? toMs(landing.t) : null;
-  const passDT = landingT != null ? landingT + LANDING_TO_D_S * 1000 : null;
+  const passDT = landingT != null ? landingT + landingToD * 1000 : null;
   const stopT = stop ? toMs(stop.t) : null;
   const stopLiftedT = revoke ? toMs(revoke.t) : null;
   const approveT = approve ? toMs(approve.t) : null;

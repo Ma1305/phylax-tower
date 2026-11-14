@@ -131,12 +131,17 @@ function applyMsg(s: Store, msg: FeedMsg): Store {
       const { coll, key } = stateKey(d);
       const t = toMs((d.t ?? d.updated_at) as never);
       const blocked = String(d.state ?? d.status ?? "").includes("block");
+      // the live runner moves AC8646/TRUCK1 once a scenario second: don't let
+      // position-only updates flood the Atlas strip
+      const prev = coll === "flight_state" ? s.flightState[key] : undefined;
+      const quiet = coll === "flight_state" && prev !== undefined && prev.hold_short === d.hold_short
+        && prev.current_clearance === d.current_clearance;
       return {
         ...s,
         flightState: coll === "flight_state" ? { ...s.flightState, [key]: d } : s.flightState,
         runwayStatus: coll === "runway_status" ? { ...s.runwayStatus, [key]: d } : s.runwayStatus,
         clock: advanceClock(s, t),
-        events: pushEvent(s, {
+        events: quiet ? s.events : pushEvent(s, {
           collection: coll, op: "update", t, tone: blocked ? "red" : "neutral",
           body: short(d, coll === "flight_state"
             ? ["callsign", "status", "clearance", "runway", "hold_short"]

@@ -24,7 +24,7 @@ export interface Feed {
   approve(d: Decision): Promise<void>;
   reject(d: Decision): Promise<void>;
   revoke(d: Decision): Promise<void>;
-  play(): Promise<void>;
+  play(safetyEnabled: boolean): Promise<void>;
   reset(): Promise<void>;
   rogue(): Promise<void>;
   close(): void;
@@ -43,6 +43,30 @@ async function post(path: string, body?: unknown): Promise<unknown> {
   try { data = JSON.parse(text); } catch { /* plain text */ }
   if (!res.ok) throw Object.assign(new Error(`${path} -> HTTP ${res.status}`), { data });
   return data;
+}
+
+/** Server decisions carry intent_action + an ``intent`` view (holdshort/api/feed.py);
+ *  the UI reads action / runway / conflicts_with / text from the decision itself. */
+export function normDecision(raw: Decision): Decision {
+  const d = raw as Decision & { intent?: Record<string, unknown> | null };
+  const i = (d.intent ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  return {
+    ...d,
+    action: d.action ?? d.intent_action,
+    runway: d.runway ?? str(i.runway),
+    conflicts_with: d.conflicts_with ?? str(i.conflicts_with),
+    text: d.text ?? str(i.proposal_text),
+    reason: d.reason ?? str(i.reason),
+  };
+}
+
+function normMsg(m: FeedMsg): FeedMsg {
+  if (m.type === "decision") return { ...m, doc: normDecision(m.doc) };
+  if (m.type === "snapshot" && m.doc) {
+    return { ...m, doc: { ...m.doc, decisions: (m.doc.decisions ?? []).map(normDecision) } };
+  }
+  return m;
 }
 
 // --------------------------------------------------------------- live ----
@@ -66,7 +90,7 @@ export class LiveFeed implements Feed {
     ws.onmessage = (ev) => {
       try {
         const m = JSON.parse(String(ev.data)) as FeedMsg;
-        if (m && typeof m === "object" && "type" in m) this.h.onMsg(m);
+        if (m && typeof m === "object" && "type" in m) this.h.onMsg(normMsg(m));
       } catch { /* ignore non-JSON frames */ }
     };
     ws.onclose = () => {
@@ -78,34 +102,38 @@ export class LiveFeed implements Feed {
     ws.onerror = () => ws.close();
   }
 
+  // The change stream echoes every change back over the WebSocket, so these only POST.
   async setPermission(agent: string, enabled: boolean) {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: "set_permission", agent, enabled }));
-    } else {
-      await post(`/permissions/${agent}`, { enabled, by: CONTROLLER });
-    }
+    await post(`/permissions/${agent}`, { enabled, by: CONTROLLER });
   }
   async approve(d: Decision) {
-    await post("/approve", { decision_id: idOf(d._id), approved_by: CONTROLLER, approve: true });
+    await post("/approve", { intent_id: idOf(d.intent_id), controller: CONTROLLER });
   }
+  /** No "reject" in the gate: the controller revokes the pending decision (logged). */
   async reject(d: Decision) {
-    await post("/approve", { decision_id: idOf(d._id), approved_by: CONTROLLER, approve: false });
+    await post("/revoke", { decision_id: idOf(d._id), controller: CONTROLLER });
   }
   async revoke(d: Decision) {
-    await post("/revoke", { decision_id: idOf(d._id), by: CONTROLLER });
+    await post("/revoke", { decision_id: idOf(d._id), controller: CONTROLLER });
   }
-  async play() {
-    await post("/scenario/start");
+  async play(safetyEnabled: boolean) {
+    this.h.onReset(); // start() resets the live state server-side too
+    await post("/scenario/start", { safety_enabled: safetyEnabled, mode: "text" });
   }
   async reset() {
-    this.h.onReset();
     await post("/scenario/reset");
+    this.h.onReset();
   }
   async rogue() {
     try {
-      const r = await post("/rogue");
-      const ok = !!(r && typeof r === "object" && (r as Record<string, unknown>).inserted === true);
-      this.h.onRogue(ok, typeof r === "string" ? r : JSON.stringify(r));
+      // -> {ok, result: [security_event, ...]}: one per write attempt Atlas blocked
+      const r = (await post("/rogue")) as { result?: Array<Record<string, unknown>> };
+      const evs = r?.result ?? [];
+      const accepted = evs.some((e) => e.error_code == null);
+      const text = evs.map((e) =>
+        `${String(e.attempted)} -> ${e.error_code == null ? "ACCEPTED" : `code ${String(e.error_code)}`}: ${String(e.error)}`,
+      ).join("\n");
+      this.h.onRogue(accepted, text || JSON.stringify(r));
     } catch (e) {
       const data = (e as { data?: unknown }).data;
       this.h.onRogue(false, data ? JSON.stringify(data) : String(e));

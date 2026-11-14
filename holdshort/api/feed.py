@@ -57,28 +57,54 @@ def jsonable(obj: Any) -> Any:
     return obj
 
 
-def _recent(db: Database, coll: str) -> list[dict]:
-    docs = list(db[coll].find().sort([("t", -1), ("_id", -1)]).limit(RECENT_LIMIT))
+INTENT_FIELDS = ("action", "target", "runway", "reason", "conflicts_with", "proposal_text")
+
+
+def with_intent(db: Database, decision: dict) -> dict:
+    """A decision plus a read-only ``intent`` view (its intent's fields) for the UI.
+
+    Only added to what the API sends; nothing is written back to the database.
+    """
+    agent, intent_id = decision.get("agent"), decision.get("intent_id")
+    if not agent or intent_id is None:
+        return decision
+    try:
+        intent = db[f"intents_{agent}"].find_one({"_id": intent_id})
+    except PyMongoError:
+        intent = None
+    if intent:
+        decision = {**decision, "intent": {k: intent.get(k) for k in INTENT_FIELDS}}
+    return decision
+
+
+def _recent(db: Database, coll: str, since: ObjectId | None = None) -> list[dict]:
+    query = {"_id": {"$gte": since}} if since is not None else {}
+    docs = list(db[coll].find(query).sort([("t", -1), ("_id", -1)]).limit(RECENT_LIMIT))
     docs.reverse()  # oldest first, ready to render in order
     return docs
 
 
-def snapshot(db: Database) -> dict:
-    """The current picture a newly connected client needs (JSON-safe)."""
+def snapshot(db: Database, since: ObjectId | None = None) -> dict:
+    """The current picture a newly connected client needs (JSON-safe).
+
+    ``since``: only transmissions/decisions of the current run (``_id >= since``).
+    """
     return jsonable(
         {
             "permissions": list(db.permissions.find().sort("agent", 1)),
             "rules": list(db.rules.find().sort("version", 1)),
-            "transmissions": _recent(db, "transmissions"),
-            "decisions": _recent(db, "decisions"),
+            "transmissions": _recent(db, "transmissions", since),
+            "decisions": [with_intent(db, d) for d in _recent(db, "decisions", since)],
             "flight_state": list(db.flight_state.find().sort("callsign", 1)),
             "runway_status": list(db.runway_status.find()),
         }
     )
 
 
-def to_event(change: dict) -> dict | None:
-    """Turn a change stream event into a WebSocket event (None if not relevant)."""
+def to_event(change: dict, db: Database | None = None) -> dict | None:
+    """Turn a change stream event into a WebSocket event (None if not relevant).
+
+    With ``db``, decision events carry their intent (see ``with_intent``)."""
     coll = change.get("ns", {}).get("coll")
     kind = EVENT_TYPES.get(coll)
     if kind is None:
@@ -89,6 +115,8 @@ def to_event(change: dict) -> dict | None:
         doc = dict(change.get("documentKey") or {})
         if op != "delete":
             op = "delete"
+    elif kind == "decision" and db is not None:
+        doc = with_intent(db, doc)
     return {"type": kind, "doc": jsonable(doc), "collection": coll, "op": op}
 
 
@@ -165,7 +193,7 @@ class ChangeFeed:
                         token = stream.resume_token
                         if change is None:
                             continue
-                        event = to_event(change)
+                        event = to_event(change, self.db)
                         if event is not None:
                             self.publish(event)
             except PyMongoError as e:

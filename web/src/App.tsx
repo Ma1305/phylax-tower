@@ -2,7 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { AirfieldMap } from "./AirfieldMap";
 import type { Feed } from "./feed";
 import { LiveFeed, MockFeed } from "./feed";
-import { buildTimeline, isStop, scene as buildScene } from "./sim";
+import { buildTimeline, isStop, LIVE_LANDING_TO_D_S, scene as buildScene } from "./sim";
 import { initialStore, reducer } from "./store";
 import type { RogueNote } from "./store";
 import type { AtlasEvent, Decision, FeedMsg, Transmission } from "./types";
@@ -49,9 +49,9 @@ export default function App() {
     ? null
     : MOCK
       ? store.clock.t + (store.clock.running ? (Date.now() - store.clock.wall) * SPEED : 0)
-      : store.clock.t + (Date.now() - store.clock.wall);
+      : store.clock.t + (Date.now() - store.clock.wall) * SPEED;
 
-  const timeline = useMemo(() => buildTimeline(store.transmissions, store.decisions), [store.transmissions, store.decisions]);
+  const timeline = useMemo(() => buildTimeline(store.transmissions, store.decisions, MOCK ? undefined : LIVE_LANDING_TO_D_S), [store.transmissions, store.decisions]);
   const sc = buildScene(timeline, now);
 
   const run = (label: string, fn: () => Promise<void>) => {
@@ -64,10 +64,12 @@ export default function App() {
   const safetyOn = perm("safety") && perm("system");
 
   const resolved = new Set(
-    store.decisions.flatMap((d) => (d.outcome === "pending_approval" ? [] : [idOf(d.intent_id), idOf(d.decision_id)]))
+    store.decisions.flatMap((d) => (d.outcome === "pending_approval" ? [] : [idOf(d.intent_id), idOf(d.decision_id), idOf(d.revokes)]))
       .filter((x): x is string => !!x),
   );
-  const pending = store.decisions.filter((d) => d.outcome === "pending_approval" && !resolved.has(idOf(d._id) ?? ""));
+  // resolved by a later decision on the same intent (approved/executed) or a revocation of it
+  const pending = store.decisions.filter((d) => d.outcome === "pending_approval" &&
+    !resolved.has(idOf(d.intent_id) ?? "") && !resolved.has(idOf(d._id) ?? ""));
   const runway04 = store.runwayStatus["04"];
   const rwyBlocked = String(runway04?.state ?? runway04?.status ?? "").includes("block") && sc.lights !== "green";
 
@@ -91,7 +93,7 @@ export default function App() {
           <div className="brand-sub">scenario time (UTC) · {status}</div>
         </div>
         <div className="controls">
-          <button className="btn" onClick={() => run("play", () => feed().play())}>▶ Play</button>
+          <button className="btn" onClick={() => run("play", () => feed().play(safetyOn))}>▶ Play</button>
           <button className="btn" onClick={() => run("reset", () => feed().reset())}>⟲ Reset</button>
           <button className="btn btn-rogue" onClick={() => run("rogue", () => feed().rogue())}>Rogue agent</button>
         </div>
@@ -260,7 +262,7 @@ function AlertsPanel({ decisions, rogue, runway04, onRevoke }: {
                   <div className="small">Alert sent to {(d.notified ?? []).join(" + ")} by name. Lights held red.</div>
                 </>
               ) : d.outcome === "revoked" ? (
-                <div className="card-title">✓ Stop lifted · {d.reason ?? "revoked"}</div>
+                <div className="card-title">{isStop(d) ? "✓ Stop lifted" : d.action === "propose_instruction" ? `✕ Rejected by controller: ${d.text ?? "proposal"}` : `✓ Revoked: ${d.action}`} · {d.rule ?? "revoked"}</div>
               ) : (
                 <div className="card-title">
                   {d.outcome === "executed" && d.approved_by ? "✓ " : d.outcome === "rejected" ? "✕ " : ""}

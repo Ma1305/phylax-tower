@@ -167,6 +167,14 @@ def create_app(db: Database | None = None, *, run_gate: bool | None = None) -> F
     def _db() -> Database:
         return state["db"]
 
+    def _run_marker() -> ObjectId | None:
+        """Start of the current run when the scenario hooks are loaded (else None)."""
+        try:
+            from holdshort.scenario import run_marker
+        except ImportError:
+            return None
+        return run_marker()
+
     # ------------------------------------------------------------------ routes
 
     @app.get("/health")
@@ -216,6 +224,14 @@ def create_app(db: Database | None = None, *, run_gate: bool | None = None) -> F
             _db(), "scenario_start", safety_enabled=body.safety_enabled, mode=body.mode
         )
 
+    @app.get("/scenario/status")
+    def scenario_status() -> dict:
+        try:
+            from holdshort.scenario import status
+        except ImportError as e:
+            raise HTTPException(status_code=501, detail="scenario hooks not available") from e
+        return jsonable(status())
+
     @app.post("/scenario/reset")
     def scenario_reset() -> dict:
         return _call_hook(_db(), "scenario_reset")
@@ -234,7 +250,7 @@ def create_app(db: Database | None = None, *, run_gate: bool | None = None) -> F
         feed: ChangeFeed = state["feed"]
         queue = feed.subscribe()  # subscribe before the snapshot so nothing is missed
         try:
-            snap = await run_in_threadpool(snapshot, _db())
+            snap = await run_in_threadpool(snapshot, _db(), _run_marker())
             await websocket.send_json({"type": "snapshot", "doc": snap})
 
             async def pump() -> None:

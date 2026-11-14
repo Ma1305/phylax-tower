@@ -52,7 +52,17 @@ uv run uvicorn holdshort.api.app:app --port 8000   # CORS open for localhost ori
 - `POST /scenario/start` `{safety_enabled, mode: "text"|"audio"}`, `POST /scenario/reset`,
   `POST /rogue`, `GET /audit?q=` call `holdshort.scenario.start(db, *, safety_enabled, mode)`,
   `holdshort.scenario.reset(db)`, `holdshort.agents.rogue(db)`, `holdshort.audit.answer(db, q)`
-  and return 501 until those exist (`HOOKS` in `holdshort/api/app.py`).
+  (`HOOKS` in `holdshort/api/app.py`). All exist except `holdshort.audit` (audit task),
+  so `/audit` still returns 501. `/scenario/start` returns at once and plays in a thread of
+  the API (`HOLDSHORT_SCENARIO_SPEED`, default 1); `GET /scenario/status` reports the run.
+- Decision events and snapshot decisions carry a read-only `intent` view
+  (`action, target, runway, reason, conflicts_with, proposal_text`) for the UI.
+
+## Live demo
+
+`scripts/demo.sh` starts gate, agents, API (:8000) and web (:5173), logs in `logs/demo/`;
+`scripts/demo_stop.sh` stops it all. Runbook with the exact clicks: [DEMO.md](DEMO.md).
+`scripts/demo_api_check.sh` checks the whole stack headlessly through the API.
 - `GET /health`. The gate runs as its own process; `HOLDSHORT_API_RUN_GATE=1` runs it
   inside the API instead.
 
