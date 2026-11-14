@@ -1,0 +1,56 @@
+{
+  "_comment": "Seeded airport for Hold Short v2. A schematic of LaGuardia: positions are approximate. GeoJSON order is [lon, lat]. The foundation task builds each lane's `area` polygon from centerline + width_m (aprons give `area` directly).",
+  "tower": {
+    "_id": "LGA",
+    "name": "LaGuardia Tower",
+    "icao": "KLGA",
+    "center": {"type": "Point", "coordinates": [-73.8740, 40.7772]}
+  },
+  "lanes": [
+    {"_id": "RWY_04_22", "kind": "runway", "name": "Runway 04/22", "designators": ["04", "22"], "width_m": 45,
+     "centerline": {"type": "LineString", "coordinates": [[-73.8846, 40.7692], [-73.8689, 40.7851]]},
+     "crosses": ["RWY_13_31", "TWY_D", "TWY_G"]},
+    {"_id": "RWY_13_31", "kind": "runway", "name": "Runway 13/31", "designators": ["13", "31"], "width_m": 45,
+     "centerline": {"type": "LineString", "coordinates": [[-73.8786, 40.7822], [-73.8573, 40.7722]]},
+     "crosses": ["RWY_04_22"]},
+    {"_id": "TWY_B", "kind": "taxiway", "name": "Taxiway B", "designators": ["B"], "width_m": 23,
+     "centerline": {"type": "LineString", "coordinates": [[-73.8822, 40.7674], [-73.8665, 40.7833]]},
+     "crosses": ["TWY_D", "TWY_G"]},
+    {"_id": "TWY_D", "kind": "taxiway", "name": "Taxiway D", "designators": ["D"], "width_m": 23,
+     "centerline": {"type": "LineString", "coordinates": [[-73.8759, 40.7738], [-73.8807, 40.7774]]},
+     "crosses": ["RWY_04_22", "TWY_B"]},
+    {"_id": "TWY_G", "kind": "taxiway", "name": "Taxiway G", "designators": ["G"], "width_m": 23,
+     "centerline": {"type": "LineString", "coordinates": [[-73.87906, 40.77058], [-73.88386, 40.77418]]},
+     "crosses": ["RWY_04_22", "TWY_B"]},
+    {"_id": "APRON_MAIN", "kind": "apron", "name": "Main apron", "designators": ["RAMP"], "width_m": null,
+     "centerline": null,
+     "area": {"type": "Polygon", "coordinates": [[[-73.877775, 40.770975], [-73.869925, 40.778925], [-73.866425, 40.776325], [-73.874275, 40.768375], [-73.877775, 40.770975]]]},
+     "crosses": []}
+  ],
+  "hold_points": [
+    {"_id": "HP_D_SE", "lane_id": "TWY_D", "protects": "RWY_04_22", "position": {"type": "Point", "coordinates": [-73.8775, 40.7750]}},
+    {"_id": "HP_D_NW", "lane_id": "TWY_D", "protects": "RWY_04_22", "position": {"type": "Point", "coordinates": [-73.8791, 40.7762]}},
+    {"_id": "HP_G_SE", "lane_id": "TWY_G", "protects": "RWY_04_22", "position": {"type": "Point", "coordinates": [-73.88066, 40.77178]}},
+    {"_id": "HP_G_NW", "lane_id": "TWY_G", "protects": "RWY_04_22", "position": {"type": "Point", "coordinates": [-73.88226, 40.77298]}}
+  ],
+  "points": {
+    "RWY04_THRESHOLD": [-73.8846, 40.7692],
+    "RWY22_THRESHOLD": [-73.8689, 40.7851],
+    "RWY13_THRESHOLD": [-73.8786, 40.7822],
+    "RWY31_THRESHOLD": [-73.8573, 40.7722],
+    "D_CROSSING": [-73.8783, 40.7756],
+    "G_CROSSING": [-73.88146, 40.77238],
+    "FIRE_STATION": [-73.8807, 40.7774],
+    "FINAL_04_10NM": [-74.0375, 40.6493]
+  },
+  "controllers": [
+    {"_id": "ctl_local", "name": "Local (Tower)", "role": "local", "lanes": ["RWY_04_22", "RWY_13_31"], "streams": ["LGA_TWR"], "active": true},
+    {"_id": "ctl_ground", "name": "Ground", "role": "ground", "lanes": ["TWY_B", "TWY_D", "TWY_G", "APRON_MAIN"], "streams": ["LGA_GND", "LGA_OPS"], "active": true},
+    {"_id": "ctl_sup", "name": "Supervisor", "role": "supervisor", "lanes": [], "streams": [], "active": true}
+  ],
+  "streams": [
+    {"_id": "LGA_TWR", "name": "Tower 118.7", "kind": "tower", "frequency_mhz": 118.7, "controller_id": "ctl_local", "station": "TOWER"},
+    {"_id": "LGA_GND", "name": "Ground 121.7", "kind": "ground", "frequency_mhz": 121.7, "controller_id": "ctl_ground", "station": "GROUND"},
+    {"_id": "LGA_OPS", "name": "Airport Ops 130.0", "kind": "ops", "frequency_mhz": 130.0, "controller_id": "ctl_ground", "station": "OPS"}
+  ]
+}
