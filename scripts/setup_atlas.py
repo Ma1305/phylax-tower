@@ -196,7 +196,8 @@ VALIDATORS: dict[str, dict] = {
 # ------------------------------------------------------------------------- seeds
 
 _READ = {
-    "listener": ["audio_clips", "streams", "controllers", "lanes", "objects", "callsigns"],
+    "listener": ["audio_clips", "streams", "controllers", "lanes", "objects", "callsigns",
+                 "audio.files", "audio.chunks"],
     "safety": ["context", "objects", "lane_status", "lanes", "controllers", "streams", "rules",
                "permissions", "weather"],
     "procedures": ["context", "objects", "lane_status", "lanes", "controllers", "streams",
