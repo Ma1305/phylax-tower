@@ -104,3 +104,18 @@ Each agent is its own process. Agents never act: they only insert intents into
 `scripts/demo_check.sh` runs the whole thing (gate + agents, scenario with safety off
 then on, rogue agent) in a throwaway `<MONGODB_DB>_demo_check` database and asserts
 the demo outcomes. Logs go to `logs/demo_check/`.
+
+## Search (tier 2)
+
+```bash
+uv run python scripts/setup_search.py   # idempotent: collections, seeds, indexes, waits for READY
+```
+
+- `holdshort.search.callsigns.resolve("truck one")` -> `Match(callsign="TRUCK1", score=...)`
+  (spoken words normalized to callsign form, then fuzzy `$search` on `callsigns_search`).
+- `holdshort.search.callsigns.similar_on_frequency("AC8646")` -> confusable callsigns on the
+  same frequency (AC6846, AC8464) with a reason.
+- `holdshort.search.incidents.similar(text, k=3)` -> past runway incursions. Uses `$vectorSearch`
+  with automated embedding (`voyage-4` on `summary`, index `incidents_vector`), and falls back to
+  the Atlas Search text index `incidents_text` if the vector index is not queryable.
+  The incident summaries are written in our own words and name no airlines or people.
