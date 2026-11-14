@@ -1,14 +1,15 @@
-# Phylax Tower v2: build plan
+# Phylax Tower: design
 
-Phylax Tower was called Hold Short during the build; identifiers keep the old name.
+This began as the build plan for the second version of the system ("v2") and is kept as the
+design document. It describes the system as it was built. Phylax Tower was called Hold Short
+during the build, so identifiers (the `holdshort` package, the `holdshort_v2` database, the
+`HOLDSHORT` station) keep the old name.
 
 Read this first, then `CONTRACTS.md` (data shapes and APIs). `SIMULATOR_CONTRACT.md` is the
 only source for the `/ingest/*` API. `world_lga.json` is the seeded airport.
 
-Hackathon: MongoDB "Agents in Context", statement #1 "Agents You Can Audit". Submission 5:00 PM
-today. Everything lives in the MongoDB Atlas Sandbox cluster, database `holdshort_v2`.
-The v1 build (branch `build/all-tasks`, database `holdshort`) is the fallback demo: never touch
-that database.
+Hackathon: MongoDB "Agents in Context" (Toronto, 14 November 2026), statement #1 "Agents You
+Can Audit". Everything lives in one MongoDB Atlas cluster, database `holdshort_v2`.
 
 ## 1. Product
 
@@ -17,13 +18,15 @@ Three separate systems:
 1. **Tower (main system, package `holdshort/`)**. One tower, several controllers, each owning
    lanes (runways, taxiways, aprons). It takes in many radio streams and position feeds at the
    same time, keeps a live picture (objects, lane status), keeps a small expiring working memory
-   for the agents, and runs agents that warn (reactive) or propose actions that the owning
-   controller approves (proactive).
+   for the agents, and runs agents that warn, stop a conflict at once (a critical stop is
+   autonomous by default: the owning controller is told and can lift it), or propose an
+   instruction that the owning controller approves.
 2. **Visualizer (`visualizer/`)**. Separate system: its own read-only API and its own web app.
    It never imports from `holdshort/` and never writes to the database. Controller actions go
    to the tower's `/control/*` API.
-3. **Simulator (`simulator/`, built by another session)**. Feeds the tower through `/ingest/*`
-   only. Not part of this build; `tools/smoke_feed.py` is our small stand-in for tests.
+3. **Simulator (`simulator/`)**. A separate program that feeds the tower through `/ingest/*`
+   only: traffic, radio and weather scenarios, including the LaGuardia reconstruction.
+   `tools/smoke_feed.py` is a small stand-in used by the tests.
 
 Core rule, unchanged: **the AI can warn, stop or propose. It can never clear traffic. The
 controller stays in charge.**
@@ -33,7 +36,7 @@ controller stays in charge.**
 The statement: use Atlas as the identity, policy and audit layer (collections, schema
 validation, change streams) for an agent that takes real actions, where every action is tied to
 an identity, checked against policy before it runs, and recorded so a reviewer can reconstruct
-it afterward. Keep these three answers visible in the code, the data and the screen:
+it afterward. The three answers are visible in the code, the data and the screen:
 
 | Their question | Our answer |
 |---|---|
@@ -41,18 +44,19 @@ it afterward. Keep these three answers visible in the code, the data and the scr
 | How do you record what it did, why, and under whose authority? | Insert-only `decisions` with `authorized_by`, `controller_id`, `approved_by`; `security_events` for every blocked attempt; `state_events` for every switch change. |
 | How do you stop or roll back an agent mid-run? | Per-agent and master switches, mode and tier changes take effect on the next intent; `revoke` inserts a new decision pointing at the old one. |
 
-The visualizer's time travel is the "reviewer reconstructs it afterward" feature: build it
+The visualizer's time travel is the "reviewer reconstructs it afterward" feature: it is built
 from the stored records only.
 
-Submission needs a public repo, an accessible demo link and a 1-minute video. Banned: basic
-RAG, Streamlit, and projects where a dashboard is the main feature, so the tower and its
-agents are the product and the visualizer is a separate viewer.
+The hackathon rules ruled out basic RAG, Streamlit, and projects where a dashboard is the main
+feature, so the tower and its agents are the product and the visualizer is a separate viewer.
 
-Sponsor technology to use where it fits (do not bolt it on): Atlas schema validation, change
-streams, time-series and TTL collections, Atlas Search / Vector Search with automated
-(Voyage) embeddings for the agents' working memory and similar incidents, LangGraph with
-MongoDB checkpoints (+ LangSmith tracing when `LANGSMITH_API_KEY` is set) for the LLM
-advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound calls.
+Technology, used where it fits: Atlas schema validation, change streams, time-series and TTL
+collections, Atlas Search / Vector Search with automated (Voyage) embeddings for the agents'
+working memory and similar incidents; LangGraph with MongoDB checkpoints (plus LangSmith
+tracing when `LANGSMITH_API_KEY` is set) for the LLM advisor; Gemini on Vertex AI as the
+language model (`holdshort/llm.py`; an Anthropic provider is wired in as an alternative, and
+with no provider the agents fall back to rules and templates); ElevenLabs for speech-to-text,
+voice isolation and the spoken outbound calls.
 
 ## 2. Architecture
 
@@ -78,11 +82,11 @@ advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound 
         v
 +------------------------ VISUALIZER (visualizer/) -----------------------+
 | api (FastAPI :8100, read-only)  /viz/*  live WebSocket, time travel     |
-| web (React + Vite :5180)        map, streams bar, timeline, controllers |
+| web (React + Vite :5180)        map, radio, streams dock, timeline      |
 +-------------------------------------------------------------------------+
 ```
 
-## 3. Design decisions (do not re-open these)
+## 3. Design decisions
 
 1. **Time is wall-clock UTC everywhere.** `t` is when it happened in real time. No scenario
    clock. TTL and time travel both depend on this.
@@ -95,7 +99,7 @@ advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound 
 4. **Modes.** Each agent has `mode`: `reactive` (may only emit `warn`) or `proactive` (may also
    emit `stop` / `propose_instruction`). `tier` decides approval: `autonomous` lets a `stop` run
    without a controller, `needs_approval` holds it for the owning controller. The gate enforces
-   both. **Default (decided by the product owner, 13:55): stops are autonomous.** A critical
+   both. **By default stops are autonomous.** A critical
    stop executes and is spoken at once; the owning controller is told, not asked, and can lift
    it. Everything that is not a stop (proposed instructions, lane closures) still waits for the
    owning controller. Every decision, whoever made it, is an insert-only `decisions` document.
@@ -106,10 +110,10 @@ advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound 
    never "clear"), (b) `holdshort/access.py` `ScopedDb`: every agent gets a database handle
    limited to the `read`/`write` lists in its permission document; a denied call raises and is
    written to `security_events`, (c) per-agent Atlas users generated on demand
-   (`holdshort/identity/`): when Atlas admin credentials are present, each agent's custom role
-   and short-lived database user are created from its permission document through the Atlas
-   Admin API and the agent connects as that user; without the credentials it falls back to the
-   shared connection string (or `MONGODB_URI_<AGENT>` if set).
+   (`holdshort/identity/`, off by default): with `AGENT_IDENTITIES=generated` and Atlas admin
+   credentials, each agent's custom role and short-lived database user are created from its
+   permission document through the Atlas Admin API and the agent connects as that user;
+   otherwise it uses the shared connection string (or `MONGODB_URI_<AGENT>` if set).
 7. **History for time travel.** `positions` (time-series collection) keeps every position.
    `state_events` (insert-only) records every change to lane status, permissions, controllers
    and rule sets. Current-state collections are overwritten; history is rebuilt from these two.
@@ -117,7 +121,7 @@ advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound 
    approved `propose_instruction`, on `decision.stream_id`, and it is logged as a synthetic
    outbound transmission.
 
-## 4. Processes and owners
+## 4. Processes
 
 | Process | Module / path | Entry |
 |---|---|---|
@@ -137,66 +141,32 @@ advisor, ElevenLabs for speech-to-text, voice isolation and the spoken outbound 
 Every worker accepts `--db NAME`, resumes from a change-stream token it stores in
 `agent_state` (`_id` = process name), logs to stdout, and exits cleanly on SIGTERM.
 
-## 5. Rules for every task
+## 5. How it was built
 
-- Stay inside the paths your task owns. `holdshort/contracts.py` and `scripts/setup_atlas.py`
-  belong to the foundation task: if you truly need a new field, make the smallest edit and name
-  it in your final answer. Do not rename anything in `CONTRACTS.md`.
-- Commits: plain `git commit`. Never `-c user.*`, `--author`, `--no-verify` or git config
-  changes: the queue sets the author and a hook adds the whole team as co-authors.
-- Push your branch. No pull requests, no merges, never push to `main` or `v2/base`.
-- Secrets load through `holdshort/env.py` from `~/plane-management-2/.env`. Never print, log or
-  commit them. The repo is public.
-- Tests use their own database: `holdshort_v2_t<task number>` (the number is in your branch
-  name `hq/<number>-...`). Drop it when done. Never use `holdshort` or `holdshort_v2` in tests.
-- Your own test servers use ports 18000-18999. Never 8000, 8100 or 5180. Stop everything you
-  start.
-- No sudo, with one exception: `sudo docker ...` in the docker_deploy and viz_integration tasks.
-- No real ATC recordings, airline logos, crew names or crash imagery.
-- MongoDB guidance: before writing schema, index, change-stream or search code, read the
-  matching MongoDB agent skill in `/home/claude/plane-management/.claude/skills/`
-  (`mongodb-schema-design`, `mongodb-search-and-ai`, `mongodb-query-optimizer`,
-  `mongodb-connection`). `scripts/mcp-mongodb.sh` starts the MongoDB MCP server if you want to
-  inspect data.
-- ElevenLabs and LLM calls cost shared credits: unit tests must stub them. Only the smoke feed
-  and the end-to-end check make real calls, and they cache generated audio in
-  `tools/fixtures/audio/` (gitignored).
-- External services must degrade: no `ELEVENLABS_API_KEY` / `VOICE_ENABLED` false -> use the
-  clip's `truth_text` and a placeholder tone; no `LLM_API_KEY` -> rule/template fallback.
-- Time box: about 15 minutes. A small working piece beats a large broken one.
+In one day, by many small tasks running in parallel on a shared machine, each owning a few
+paths (one per row of the table in section 4, plus the shared contracts, the database setup,
+the smoke feed, the deploy files and the integration scripts). Three rules from that process
+still shape the code:
 
-## 6. Tasks
+- External services must degrade. No ElevenLabs key or `VOICE_ENABLED` false: the listener uses
+  the text the feed sent with the clip and the speaker stores a placeholder tone. No language
+  model provider: rule and template fallbacks.
+- Tests never use the databases `holdshort` or `holdshort_v2`; each run creates and drops its
+  own. Unit tests stub ElevenLabs and the model; only the proof scripts make real calls.
+- No real ATC recordings, airline logos or crew names anywhere in the repository.
 
-| Task | Owns | After |
-|---|---|---|
-| foundation | `holdshort/contracts.py`, `scripts/setup_atlas.py`, `holdshort/world/`, `holdshort/access.py`, `holdshort/events.py`, `holdshort/api/deps.py`, `holdshort/agents/_stream.py`, `tests/conftest.py`, removal of v1-only code | - |
-| platform | `holdshort/api/app.py`, `holdshort/api/json.py`, `holdshort/api/routers/__init__.py`, `holdshort/serve.py` | - |
-| ingest | `holdshort/api/routers/ingest.py`, `holdshort/ingest/` | foundation |
-| listener | `holdshort/listener/` | foundation |
-| state | `holdshort/state/` | foundation |
-| memory | `holdshort/memory/` | foundation |
-| safety | `holdshort/safety/`, `holdshort/agents/safety_agent.py` | foundation |
-| gate_control | `holdshort/gate/`, `holdshort/api/routers/control.py` | foundation |
-| advisor | `holdshort/agents/procedures_agent.py`, `holdshort/agents/weather_agent.py` | foundation |
-| speaker | `holdshort/speaker/`, `holdshort/api/routers/outbound.py` | foundation |
-| smoke_feed | `tools/smoke_feed.py`, `tools/fixtures/` | foundation |
-| viz_api | `visualizer/api/` | - |
-| viz_web | `visualizer/web/` | - |
-| docker_deploy | `deploy/` | foundation, viz_api, viz_web |
-| integration | `scripts/run_v2.sh`, `scripts/stop_v2.sh`, `scripts/e2e_check.sh`, seams between tower modules | all tower tasks |
-| viz_integration | seams between visualizer and tower, `TESTING.md` | integration, viz_api, viz_web, docker_deploy |
+## 6. Scope
 
-## 7. Cut line
-
-Must work: ingest of positions and of clips on 3 streams at once -> transcripts with
+The core path: ingest of positions and of clips on three streams at once -> transcripts with
 `stream_id` -> lane status -> a safety warning or stop routed to the owning controller ->
-approve in the visualizer -> spoken outbound clip; expiring `context`; visualizer live view,
-controller filter, stream selection with audio, time travel.
+spoken outbound clip (a proposal first waits for approval in the visualizer); expiring
+`context`; the visualizer's live view, controller filter, streams with audio and time travel.
 
-Only if the above works: LLM advisor proposals beyond the template, per-agent Atlas users,
-cloud deployment, lane close/reopen.
+Built on top of that: LLM advisor proposals beyond the template, per-agent Atlas users
+(`holdshort/identity/`), the cloud deployment, lane close and reopen in the gate, the audit
+agent, and in the visualizer the streams dock, highlights playback and the settings panel.
 
-## 8. Containers and hosting
+## 7. Containers and hosting
 
 - `deploy/backend.Dockerfile`: the tower (one image; `python -m holdshort.serve` runs every
   process; `--only api,gate` runs a subset).
@@ -206,4 +176,5 @@ cloud deployment, lane close/reopen.
   always-on workers and WebSockets, so `--min-instances 1 --no-cpu-throttling`), the web app on
   Firebase Hosting. Firebase Hosting rewrites do not carry WebSockets, so the web app takes the
   API base URLs from `VITE_VIZ_API` and `VITE_TOWER_API` and connects to them directly.
-- Nothing is deployed by a task. Deploy scripts are written and dry-checked only.
+- The live demo's web app is at https://phylax-tower.web.app. Deploying is always a manual
+  step (`deploy/README.md`).

@@ -1,13 +1,13 @@
-# Phylax Tower v2: simulator contract (the `/ingest/*` API)
+# Phylax Tower: simulator contract (the `/ingest/*` API)
 
-For the session building the simulator. This file is the only definition of how data enters
-the tower. The tower implements it; the simulator calls it. Read `PLAN.md` for the big picture
-and `world_lga.json` for the airport.
+This file is the only definition of how data enters the tower. The tower implements it
+(`holdshort/api/routers/ingest.py`); the simulator (`simulator/`) calls it. Read `PLAN.md` for
+the big picture and `world_lga.json` for the airport.
 
 ## Rules for the simulator
 
-- It lives in `simulator/` at the repo root, on its own branch cut from `v2/base`. It must not
-  import from `holdshort/` or `visualizer/` and must not touch the database: HTTP only.
+- It lives in `simulator/` at the repo root. It must not import from `holdshort/` or
+  `visualizer/` and must not touch the database: HTTP only.
 - It behaves like live feeds: every `t` is the real UTC time the thing happens. To run a
   scenario faster, shorten the gaps; never send old or future timestamps (the tower rejects a
   `t` more than 120 s away from its own clock).
@@ -101,12 +101,14 @@ What Phylax Tower has told traffic, so simulated traffic can obey. Poll about on
    {"t": "2026-11-14T19:05:58Z", "decision_id": "...", "stream_id": "LGA_GND",
     "action": "stop", "target": ["TRUCK1"], "lane_id": "RWY_04_22",
     "text": "Truck one, STOP. Hold short runway zero four.",
-    "approved_by": "ctl_local", "clip_id": "..."}
+    "approved_by": null, "clip_id": "..."}
  ]}
 ```
 `action` is `stop` or `propose_instruction` (an instruction a controller approved; read
-`text`). A target that receives `stop` should stop moving. Pass the returned `now` as the next
-`since`.
+`text`). `approved_by` is null for an autonomous stop and the controller's id for anything a
+controller approved. A target that receives `stop` should stop moving. Poll with `since` a few
+seconds behind the returned `now` and de-duplicate by `decision_id`: a call's `t` is when it
+was decided, which can be slightly earlier than the moment it becomes visible.
 
 ### Errors
 `400` bad body (the response says which field), `401` wrong or missing `X-Ingest-Key`,
@@ -121,10 +123,12 @@ What Phylax Tower has told traffic, so simulated traffic can obey. Poll about on
    taxiway, readback check). Speak standard phraseology and use the callsigns of the objects
    you report, spoken the usual way ("Air Canada eight six four six", "Truck one").
    Runways are spoken as digits ("runway four" = 04), taxiways by letter name ("Delta" = D).
-3. Agents warn the owning controller, or propose a call (a stop, or an instruction) that the
-   controller approves in the visualizer. Approved calls appear in `/ingest/outbound`.
+3. Agents warn the owning controller, stop a critical conflict at once (stops are autonomous
+   by default; the controller is told and can lift the stop), or propose an instruction that
+   the controller approves in the visualizer. Executed stops and approved instructions appear
+   in `/ingest/outbound`.
 
-## Scenarios we need from the simulator
+## Scenarios the simulator provides
 
 - **Normal traffic** (the long-running default): several arrivals on runway 04 a few minutes
   apart, departures, taxiing aircraft on B, vehicles on the apron and crossing at D or G with
@@ -132,20 +136,20 @@ What Phylax Tower has told traffic, so simulated traffic can obey. Poll about on
   It must produce no stops: a correct system stays quiet.
 - **Incident: runway crossing during a landing** (LaGuardia-style): an aircraft is cleared to
   land on 04 on Tower while Ground clears a fire truck to cross 04 at D. About 25 s from the
-  crossing clearance to the conflict. With the tower's agents on and the stop approved, the
-  truck holds short; otherwise it crosses.
+  crossing clearance to the conflict. With the tower's agents on, the stop reaches the truck
+  and it holds short; otherwise it crosses.
 - **Incident: uncleared object** on a runway (a vehicle or a person with no clearance and no
   radio call) while an aircraft is on final.
 - **Degraded radio**: an unclear call, a wrong readback, two similar callsigns on one stream
   (AC8646 and AC8464), a stepped-on transmission.
 - **Low visibility**: weather drops under 1 sm during normal traffic.
 
-Each scenario should be startable by name from the command line, announce itself with
-`/ingest/runs`, and be repeatable.
+Each scenario starts by name from the command line (`python -m hssim run NAME`, see
+`simulator/README.md`), announces itself with `/ingest/runs`, and is repeatable. The
+simulator also has a `laguardia` scenario, the reconstruction of the 22 March 2026 accident.
 
-## Until the tower is up
+## Without a tower
 
-Develop against a stub that accepts these calls, or against the real tower on the VM once the
-`ingest` task has landed (`http://localhost:8000`, see `TESTING.md` on the final branch).
-`tools/smoke_feed.py` on the tower side is a tiny stand-in used only for our own tests; the
-simulator replaces it.
+`python -m hssim stub` serves a stand-in tower that accepts every call above; the simulator's
+own tests run against it. `tools/smoke_feed.py` on the tower side is a tiny stand-in for the
+simulator, used only by the tower's tests.

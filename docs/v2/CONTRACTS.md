@@ -1,4 +1,4 @@
-# Phylax Tower v2: contracts
+# Phylax Tower: contracts
 
 The single source of truth for collection shapes, enums and the `/control/*` and `/viz/*`
 APIs. `/ingest/*` is defined in `SIMULATOR_CONTRACT.md`. `holdshort/contracts.py` (Pydantic)
@@ -9,8 +9,8 @@ Conventions:
 - Timestamps: timezone-aware UTC, stored as BSON dates, wall-clock. JSON: ISO 8601 with `Z`.
 - Positions: GeoJSON `{"type": "Point", "coordinates": [lon, lat]}`.
 - Callsigns: `^[A-Z0-9]+$` (AC8646, TRUCK1). Controller stations on the radio: `TOWER`,
-  `GROUND`, `OPS` (from `streams.station`). Unknown speaker: `UNKNOWN`. Phylax itself:
-  `HOLDSHORT`.
+  `GROUND`, `OPS` (from `streams.station`). Unknown speaker: `UNKNOWN`. Phylax Tower itself:
+  `HOLDSHORT` (the build-time name; the web app shows it as PHYLAX).
 - "insert-only" = never updated or deleted by anyone.
 
 ## Enums
@@ -133,13 +133,15 @@ Seeded access lists:
 | procedures | context, objects, lane_status, lanes, controllers, streams, rules, decisions, intents_safety, incidents, permissions | intents_procedures |
 | weather | weather, rules | intents_weather |
 
-**rules** as v1 (`version`, `name`, `active`, `rules[]`). Rule ids:
+**rules** `{version, name, active, rules[]}`, one document per rule set. Rule ids:
 `no_crossing_during_active_landing`, `no_landing_on_occupied_runway`, `runway_incursion`
 (an object is on a runway that another object is cleared to land on or take off from, and has
 no clearance for it), `uncleared_entry` (an object is on a runway with no clearance at all),
 `readback_mismatch`, `no_ai_clearances`, and in `low_vis_v1` also `low_vis_one_movement`.
 
-**agent_state** `{_id: process name, resume_token, updated_at}`
+**agent_state** `{_id: process name, resume_token, updated_at, identity?}`. `identity` is how
+the process connected to Atlas: `{kind: generated|static|shared, username, role, expires_at}`,
+never a password or connection string.
 
 ## Logs (insert-only unless noted)
 
@@ -209,6 +211,7 @@ approved_by: controller_id|null, revokes: ObjectId|null, notified: [str]
 Validator: `propose_instruction` + `executed` requires a non-empty `approved_by`.
 
 Gate reason codes: `agent_disabled`, `tier_never`, `no_permission`, `no_active_rule_set`,
+`unknown_rule_set` (a `set_rule_set` for a version that does not exist),
 `mode_reactive` (a reactive agent asked for anything but `warn`), `advisory` (a `warn`:
 executed, shown, never spoken), `tier_autonomous` (a `stop` run without a controller),
 `needs_approval`, `controller_approved`, `controller_rejected` (outcome `revoked`,
@@ -229,7 +232,12 @@ pending_approval. `propose_instruction` -> always pending_approval. `close_lane`
 **sim_runs** (written through `/ingest/runs`; markers on the timeline)
 `{_id ObjectId, tower_id, scenario, kind: "normal"|"incident", note, started_at, ended_at|null}`
 
-Kept from v1 unchanged: `callsigns`, `incidents` (Atlas Search / Vector Search).
+**callsigns** `{_id: callsign, callsign, spoken, kind, frequency}` with an Atlas Search index
+(fuzzy matching of a misheard callsign, confusable pairs on one frequency).
+
+**incidents**: short summaries of past runway incidents, each with a `source`. Vector Search
+with automated embedding on `summary`; an Atlas Search text index is the fallback.
+Both collections are seeded by `scripts/setup_search.py`.
 
 ## Control API (tower, port 8000)
 
@@ -247,7 +255,8 @@ POST /control/permissions/{agent}  {by: controller_id, enabled?, mode?, tier?}
 GET  /control/decisions?tower_id=LGA[&controller_id=][&since=ISO][&limit=100]
                                                      the decision log, newest first, each
                                                      with its intent merged in as `intent`
-GET  /control/audit?q=...                            the audit agent's answer (as v1)
+GET  /control/audit?q=...                            the audit agent's answer:
+                                                     {timeline, narrative, cited, focus, source}
 ```
 Errors: 400 bad input, 403 `not_lane_owner`, 404 unknown id, 409 already decided.
 CORS: allow any `localhost` / `127.0.0.1` origin and the origins in `CORS_ORIGINS`.
