@@ -1,0 +1,27 @@
+{
+  "name": "holdshort-video",
+  "version": "1.0.0",
+  "description": "Render project for the 60-second Hold Short demo video",
+  "scripts": {
+    "data": "node scripts/prepare.mjs",
+    "render": "node scripts/prepare.mjs && remotion render src/index.ts HoldShort out/preview.mp4 --public-dir=assets",
+    "probe": "remotion ffprobe -v error -show_entries stream=codec_type,width,height,r_frame_rate:format=duration -of default=nw=1 out/preview.mp4",
+    "still": "node scripts/prepare.mjs && remotion still src/index.ts HoldShort --public-dir=assets",
+    "studio": "node scripts/prepare.mjs && remotion studio src/index.ts --public-dir=assets --port=18080",
+    "typecheck": "tsc --noEmit"
+  },
+  "type": "commonjs",
+  "dependencies": {
+    "@fontsource/inter": "5.1.0",
+    "@fontsource/jetbrains-mono": "5.1.0",
+    "@remotion/cli": "4.0.290",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.290"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "typescript": "5.6.3"
+  },
+  "private": true
+}

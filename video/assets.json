@@ -1,0 +1,16 @@
+[
+  {"file":"vo.wav","kind":"audio","scene":"all","optional":false,"contains":"Full voiceover, 0:00 to the end. If absent the video renders silent on the script.json timings."},
+  {"file":"incident_photo.jpg","kind":"image","scene":"incident","optional":false,"credit":"Photo: NTSB","contains":"Real photo of the incident. Present: NTSB investigation photo \"View of both vehicles after collision\" (DCA26MA161, public domain US government work)."},
+  {"file":"incident_map.png","kind":"image","scene":"incident","optional":false,"credit":"Graphic: NTSB preliminary report, figure 2","contains":"Real map of the incident. Present: NTSB preliminary report figure 2, positions of Truck 1 and the jet at 23:37:04."},
+  {"file":"incident_clip.mp4","kind":"video","scene":"incident","optional":true,"credit":"Video: NTSB b-roll","contains":"Optional real footage, replaces the photo in the first half of scene 1. Suggested: NTSB b-roll youtube.com/watch?v=zaPcmyCYiMI. 5 s, 16:9."},
+  {"file":"rec_safety_on.mp4","kind":"video","scene":"catch","optional":false,"contains":"Screen recording: the same calls with Safety ON. The stop appears and is routed to the owning controller. 16 s, 16:9."},
+  {"file":"stop_spoken.wav","kind":"audio","scene":"catch","optional":false,"contains":"The synthetic stop call the product speaks on the radio, about 1.5 s."},
+  {"file":"rec_blocked_write.mp4","kind":"video","scene":"audit","optional":false,"contains":"Screen recording: an agent attempts a forbidden write and the security_events row that results. 4 s, 16:9."},
+  {"file":"rec_switch_off.mp4","kind":"video","scene":"audit","optional":false,"contains":"Screen recording: a controller switches an agent off and its next intent is refused. 5 s, 16:9."},
+  {"file":"rec_time_travel.mp4","kind":"video","scene":"audit","optional":false,"contains":"Screen recording: the visualizer timeline scrubbed back through the event (time travel). 5 s, 16:9."},
+  {"file":"cam_intro.mp4","kind":"video","scene":"team","optional":true,"with_audio":false,"contains":"YOU ON CAMERA: the team saying who you are. 4 s, 16:9, landscape."},
+  {"file":"cam_catch.mp4","kind":"video","scene":"catch","optional":true,"with_audio":false,"contains":"YOU ON CAMERA: presenter explaining the catch. 16 s, 16:9."},
+  {"file":"cam_audit.mp4","kind":"video","scene":"audit","optional":true,"with_audio":false,"contains":"YOU ON CAMERA: presenter explaining the audit trail. 16 s, 16:9."},
+  {"file":"cam_close.mp4","kind":"video","scene":"close","optional":true,"with_audio":false,"contains":"YOU ON CAMERA: the team signing off. 5.5 s, 16:9."},
+  {"file":"team.png","kind":"image","scene":"team","optional":true,"contains":"Team photo, used in scene 2 only if cam_intro.mp4 is absent. Real photo, no generated faces."}
+]

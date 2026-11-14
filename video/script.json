@@ -1,0 +1,96 @@
+{
+  "config": {
+    "product_name": "Phylax Tower",
+    "team_names": [
+      "Mani",
+      "Ariyan",
+      "Sahand",
+      "Amirali"
+    ],
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "hide_missing_optional": false
+  },
+  "scenes": [
+    {
+      "id": "incident",
+      "start_s": 0,
+      "end_s": 10,
+      "vo_start_s": 0.3,
+      "vo_end_s": 7.8,
+      "vo_text": "March 2026, LaGuardia. A jet is cleared to land. Two minutes later, a fire truck is cleared to cross the same runway.",
+      "title": "LAGUARDIA · RUNWAY 4 · MARCH 22, 2026",
+      "cards": [
+        {
+          "time": "23:35:07",
+          "from": "TOWER",
+          "to": "AC8646",
+          "text": "Air Canada eight six four six, LaGuardia tower, wind zero three zero at one two, runway four, cleared to land."
+        },
+        {
+          "time": "23:37:04",
+          "from": "TOWER",
+          "to": "TRUCK1",
+          "text": "Truck one and company, cross runway four at Delta."
+        }
+      ],
+      "news": {
+        "kicker": "INCIDENT REPORT",
+        "headline": "Runway collision at LaGuardia",
+        "subline": "A regional jet landing on runway 4 struck an airport fire truck crossing at taxiway D.",
+        "facts": [
+          "March 22, 2026 · 23:37 local",
+          "2 killed · 39 taken to hospital",
+          "NTSB investigation DCA26MA161 (preliminary)"
+        ],
+        "source": "Facts and images: NTSB preliminary report DCA26MA161"
+      },
+      "cards_note": "Reconstructed wording. Times from the NTSB preliminary report.",
+      "punchline": "TWO CLEARANCES. ONE RUNWAY."
+    },
+    {
+      "id": "team",
+      "start_s": 10,
+      "end_s": 14,
+      "vo_start_s": 10.1,
+      "vo_end_s": 13.95,
+      "vo_text": "We're {names}. This is {product}."
+    },
+    {
+      "id": "what",
+      "start_s": 14,
+      "end_s": 22,
+      "vo_start_s": 14.1,
+      "vo_end_s": 21.9,
+      "vo_text": "A safety net for control towers. Agents hear every radio call, log it in MongoDB Atlas, and stop conflicting clearances."
+    },
+    {
+      "id": "catch",
+      "start_s": 22,
+      "end_s": 38,
+      "vo_start_s": 22.4,
+      "vo_end_s": 36.8,
+      "vo_text": "Same calls, Safety on. ElevenLabs transcribes each call into Atlas. A change stream fires our rules. No LLM decides. The stop goes to the runway's controller, and {product} says it on the radio."
+    },
+    {
+      "id": "audit",
+      "start_s": 38,
+      "end_s": 54,
+      "vo_start_s": 38.6,
+      "vo_end_s": 52.25,
+      "vo_text": "Every agent is auditable. Agents can only file intents; anything else is blocked and logged. Switch an agent off, and its next intent is refused. Then rewind the whole event from stored records.",
+      "title": "The AI can stop traffic. It can never clear it."
+    },
+    {
+      "id": "close",
+      "start_s": 54,
+      "end_s": 59.5,
+      "vo_start_s": 54.4,
+      "vo_end_s": 58.6,
+      "vo_text": "{product}. The AI can stop traffic, never clear it.",
+      "tagline": "Stop, never clear.",
+      "built_on": "Built on MongoDB Atlas · ElevenLabs"
+    }
+  ]
+}
