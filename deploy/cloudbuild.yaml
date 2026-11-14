@@ -1,0 +1,29 @@
+# Build and push the tower and visualizer API images with Cloud Build (no local Docker needed).
+# Run from the repo root (the build context; .dockerignore keeps .env, .git, node_modules out):
+#   gcloud builds submit --config deploy/cloudbuild.yaml \
+#     --project ambient-handler-460806-t7 --region us-east4 \
+#     --substitutions _TAG=$(git rev-parse --short HEAD) .
+# Then deploy with: SKIP_BUILD=1 TAG=<same tag> deploy/cloudrun.sh
+substitutions:
+  _REGISTRY: us-east4-docker.pkg.dev/ambient-handler-460806-t7/holdshort
+  _TOWER_IMAGE: tower
+  _VIZ_API_IMAGE: viz-api
+  _TAG: latest
+options:
+  dynamicSubstitutions: true
+  logging: CLOUD_LOGGING_ONLY
+steps:
+  - id: tower
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args: ["build", "-f", "deploy/backend.Dockerfile",
+           "-t", "${_REGISTRY}/${_TOWER_IMAGE}:${_TAG}", "."]
+  - id: viz-api
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    waitFor: ["-"]
+    args: ["build", "-f", "deploy/viz-api.Dockerfile",
+           "-t", "${_REGISTRY}/${_VIZ_API_IMAGE}:${_TAG}", "."]
+images:
+  - ${_REGISTRY}/${_TOWER_IMAGE}:${_TAG}
+  - ${_REGISTRY}/${_VIZ_API_IMAGE}:${_TAG}
