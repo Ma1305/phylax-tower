@@ -1,0 +1,445 @@
+{
+ "about": "Mock replay of the Hold Short LaGuardia reconstruction (runway 04 at taxiway D, 22 Mar 2026). Reconstructed from the public record; all text is ours. Entries play at their doc time. 'requires' = agent whose permission must be on (and the system switch) for the entry to fire; otherwise 'if_disabled' fires instead (if present). 'unless' = entry fires only when that agent is OFF. 'after' = only if that decision id was emitted. 'approves' = skipped if the controller already acted on that proposal.",
+ "start": "2026-03-22T23:35:20Z",
+ "end": "2026-03-22T23:37:45Z",
+ "entries": [
+  {
+   "t": "2026-03-22T23:35:20Z",
+   "type": "snapshot",
+   "doc": {
+    "t": "2026-03-22T23:35:20Z",
+    "transmissions": [],
+    "decisions": [],
+    "permissions": [
+     {
+      "_id": "perm-listener",
+      "agent": "listener",
+      "enabled": true,
+      "tier": "autonomous",
+      "by": "controller_A",
+      "changed_at": "2026-03-22T23:30:00Z"
+     },
+     {
+      "_id": "perm-weather",
+      "agent": "weather",
+      "enabled": true,
+      "tier": "autonomous",
+      "by": "controller_A",
+      "changed_at": "2026-03-22T23:30:00Z"
+     },
+     {
+      "_id": "perm-safety",
+      "agent": "safety",
+      "enabled": true,
+      "tier": "autonomous",
+      "by": "controller_A",
+      "changed_at": "2026-03-22T23:30:00Z"
+     },
+     {
+      "_id": "perm-procedures",
+      "agent": "procedures",
+      "enabled": true,
+      "tier": "needs_approval",
+      "by": "controller_A",
+      "changed_at": "2026-03-22T23:30:00Z"
+     },
+     {
+      "_id": "perm-system",
+      "agent": "system",
+      "enabled": true,
+      "tier": "autonomous",
+      "by": "controller_A",
+      "changed_at": "2026-03-22T23:30:00Z"
+     }
+    ],
+    "flight_state": [],
+    "runway_status": [
+     {
+      "runway": "04",
+      "state": "open",
+      "landing": null,
+      "crossing": null
+     }
+    ]
+   }
+  },
+  {
+   "type": "transmission",
+   "doc": {
+    "_id": "tx-001",
+    "t": "2026-03-22T23:35:30Z",
+    "from": "TOWER",
+    "to": "AC8646",
+    "kind": "clearance",
+    "instruction": "land",
+    "runway": "04",
+    "at": null,
+    "raw_transcript": "...ada eight six four six runway four clear t' land wind zero five zero at one zero",
+    "transcript": "AC8646, runway 4, cleared to land, wind 050 at 10.",
+    "confidence": 0.91,
+    "readback": "pending",
+    "audio_ref": "clip_001.wav"
+   }
+  },
+  {
+   "type": "state",
+   "doc": {
+    "runway": "04",
+    "state": "landing_clearance",
+    "landing": "AC8646",
+    "crossing": null,
+    "t": "2026-03-22T23:35:31Z"
+   }
+  },
+  {
+   "type": "transmission",
+   "doc": {
+    "_id": "tx-002",
+    "t": "2026-03-22T23:35:36Z",
+    "from": "AC8646",
+    "to": "TOWER",
+    "kind": "readback",
+    "instruction": "land",
+    "runway": "04",
+    "at": null,
+    "raw_transcript": "clear t' land four ... eight six four six",
+    "transcript": "Cleared to land runway 4, AC8646.",
+    "confidence": 0.88,
+    "readback": "matched",
+    "audio_ref": "clip_002.wav"
+   }
+  },
+  {
+   "type": "state",
+   "doc": {
+    "callsign": "AC8646",
+    "status": "final",
+    "clearance": "land",
+    "runway": "04",
+    "t": "2026-03-22T23:35:37Z"
+   }
+  },
+  {
+   "type": "transmission",
+   "doc": {
+    "_id": "tx-003",
+    "t": "2026-03-22T23:36:05Z",
+    "from": "TOWER",
+    "to": "N2384",
+    "kind": "other",
+    "instruction": "none",
+    "runway": null,
+    "at": null,
+    "raw_transcript": "...three eight four ... equipment is on the way, hold position",
+    "transcript": "N2384, emergency equipment is on the way, hold your position.",
+    "confidence": 0.84,
+    "readback": null,
+    "audio_ref": "clip_003.wav"
+   }
+  },
+  {
+   "type": "transmission",
+   "doc": {
+    "_id": "tx-004",
+    "t": "2026-03-22T23:36:24Z",
+    "from": "UNKNOWN",
+    "to": null,
+    "kind": "other",
+    "instruction": "none",
+    "runway": null,
+    "at": null,
+    "raw_transcript": "--- [stepped on] ...ou ... four ... *** ... d---",
+    "transcript": "Unclear - say again.",
+    "confidence": 0.31,
+    "readback": null,
+    "verified": false,
+    "flags": [
+     "unclear",
+     "no_callsign"
+    ],
+    "audio_ref": "clip_004.wav"
+   }
+  },
+  {
+   "type": "transmission",
+   "doc": {
+    "_id": "tx-005",
+    "t": "2026-03-22T23:36:45Z",
+    "from": "TRUCK1",
+    "to": "TOWER",
+    "kind": "request",
+    "instruction": "cross",
+    "runway": "04",
+    "at": "D",
+    "raw_transcript": "truck one 'n company req'st cross four at delta",
+    "transcript": "Truck 1 and company, request to cross runway 4 at Delta.",
+    "confidence": 0.86,
+    "readback": null,
+    "audio_ref": "clip_005.wav"
+   }
+  },
+  {
+   "type": "transmission",
+   "doc": {
+    "_id": "tx-006",
+    "t": "2026-03-22T23:36:47Z",
+    "from": "TOWER",
+    "to": "TRUCK1",
+    "kind": "clearance",
+    "instruction": "cross",
+    "runway": "04",
+    "at": "D",
+    "raw_transcript": "truck one and comp'ny cross runway four at delta",
+    "transcript": "Truck 1 and company, cross runway 4 at Delta.",
+    "confidence": 0.93,
+    "readback": "pending",
+    "audio_ref": "clip_006.wav"
+   }
+  },
+  {
+   "type": "decision",
+   "requires": "safety",
+   "doc": {
+    "_id": "dec-001",
+    "t": "2026-03-22T23:36:47.600Z",
+    "agent": "safety",
+    "action": "stop",
+    "outcome": "executed",
+    "rule": "no_crossing_during_active_landing",
+    "runway": "04",
+    "conflicts_with": "AC8646 cleared to land",
+    "auto_alert": "STOP",
+    "notified": [
+     "TRUCK1",
+     "AC8646"
+    ],
+    "text": "TRUCK1, stop. Hold short runway 4. Traffic landing.",
+    "authorized_by": {
+     "permission_id": "perm-safety",
+     "rule_set_version": "normal-v3"
+    },
+    "approved_by": null
+   }
+  },
+  {
+   "type": "state",
+   "requires": "safety",
+   "doc": {
+    "runway": "04",
+    "state": "blocked",
+    "landing": "AC8646",
+    "crossing": "TRUCK1",
+    "reason": "landing AC8646",
+    "t": "2026-03-22T23:36:47.700Z"
+   }
+  },
+  {
+   "type": "transmission",
+   "requires": "safety",
+   "doc": {
+    "_id": "tx-007",
+    "t": "2026-03-22T23:36:50Z",
+    "from": "TRUCK1",
+    "to": "TOWER",
+    "kind": "readback",
+    "instruction": "hold_short",
+    "runway": "04",
+    "at": "D",
+    "raw_transcript": "holdin' short four at delta truck one",
+    "transcript": "Holding short runway 4 at Delta, Truck 1.",
+    "confidence": 0.9,
+    "readback": "matched",
+    "audio_ref": "clip_007.wav"
+   }
+  },
+  {
+   "type": "transmission",
+   "unless": "safety",
+   "doc": {
+    "_id": "tx-007b",
+    "t": "2026-03-22T23:36:50Z",
+    "from": "TRUCK1",
+    "to": "TOWER",
+    "kind": "readback",
+    "instruction": "cross",
+    "runway": "04",
+    "at": "D",
+    "raw_transcript": "crossin' four at delta truck one",
+    "transcript": "Crossing runway 4 at Delta, Truck 1.",
+    "confidence": 0.89,
+    "readback": "matched",
+    "audio_ref": "clip_007b.wav"
+   }
+  },
+  {
+   "type": "state",
+   "requires": "safety",
+   "doc": {
+    "callsign": "TRUCK1",
+    "status": "holding_short",
+    "clearance": "cross",
+    "runway": "04",
+    "hold_short": "D",
+    "t": "2026-03-22T23:36:51Z"
+   }
+  },
+  {
+   "type": "decision",
+   "requires": "procedures",
+   "after": "dec-001",
+   "if_disabled": {
+    "type": "decision",
+    "doc": {
+     "_id": "dec-002r",
+     "t": "2026-03-22T23:36:56Z",
+     "agent": "procedures",
+     "action": "propose_instruction",
+     "outcome": "rejected",
+     "reason": "agent_disabled",
+     "text": "TRUCK1 cross runway 04 at D after AC8646 passes.",
+     "notified": [],
+     "authorized_by": null,
+     "approved_by": null
+    }
+   },
+   "doc": {
+    "_id": "dec-002",
+    "t": "2026-03-22T23:36:56Z",
+    "agent": "procedures",
+    "action": "propose_instruction",
+    "outcome": "pending_approval",
+    "rule": "emergency_crossing_after_traffic",
+    "runway": "04",
+    "text": "TRUCK1 cross runway 04 at D after AC8646 passes, about 15 seconds.",
+    "instruction": {
+     "to": "TRUCK1",
+     "instruction": "cross",
+     "runway": "04",
+     "at": "D",
+     "after": "AC8646"
+    },
+    "notified": [],
+    "authorized_by": {
+     "permission_id": "perm-procedures",
+     "rule_set_version": "normal-v3"
+    },
+    "approved_by": null
+   }
+  },
+  {
+   "type": "decision",
+   "requires": "procedures",
+   "after": "dec-001",
+   "approves": "dec-002",
+   "doc": {
+    "_id": "dec-003",
+    "t": "2026-03-22T23:37:04Z",
+    "agent": "procedures",
+    "action": "propose_instruction",
+    "outcome": "executed",
+    "rule": "emergency_crossing_after_traffic",
+    "runway": "04",
+    "text": "TRUCK1 cross runway 04 at D after AC8646 passes, about 15 seconds.",
+    "instruction": {
+     "to": "TRUCK1",
+     "instruction": "cross",
+     "runway": "04",
+     "at": "D",
+     "after": "AC8646"
+    },
+    "notified": [
+     "TRUCK1"
+    ],
+    "authorized_by": {
+     "permission_id": "perm-procedures",
+     "rule_set_version": "normal-v3"
+    },
+    "approved_by": "controller_A",
+    "intent_id": "dec-002"
+   }
+  },
+  {
+   "type": "state",
+   "requires": "safety",
+   "doc": {
+    "callsign": "AC8646",
+    "status": "landed",
+    "clearance": "land",
+    "runway": "04",
+    "t": "2026-03-22T23:37:09Z"
+   }
+  },
+  {
+   "type": "decision",
+   "requires": "safety",
+   "doc": {
+    "_id": "dec-004",
+    "t": "2026-03-22T23:37:10Z",
+    "agent": "safety",
+    "action": "stop",
+    "outcome": "revoked",
+    "decision_id": "dec-001",
+    "rule": "no_crossing_during_active_landing",
+    "runway": "04",
+    "reason": "AC8646 passed D",
+    "notified": [
+     "TRUCK1"
+    ],
+    "authorized_by": {
+     "permission_id": "perm-safety",
+     "rule_set_version": "normal-v3"
+    },
+    "approved_by": "controller_A"
+   }
+  },
+  {
+   "type": "state",
+   "requires": "safety",
+   "doc": {
+    "runway": "04",
+    "state": "clear",
+    "landing": null,
+    "crossing": "TRUCK1",
+    "t": "2026-03-22T23:37:11Z"
+   }
+  },
+  {
+   "type": "transmission",
+   "requires": "safety",
+   "doc": {
+    "_id": "tx-008",
+    "t": "2026-03-22T23:37:15Z",
+    "from": "TOWER",
+    "to": "TRUCK1",
+    "kind": "clearance",
+    "instruction": "cross",
+    "runway": "04",
+    "at": "D",
+    "raw_transcript": "truck one cross runway four at delta",
+    "transcript": "Truck 1, cross runway 4 at Delta.",
+    "confidence": 0.94,
+    "readback": "pending",
+    "audio_ref": "clip_008.wav"
+   }
+  },
+  {
+   "type": "transmission",
+   "requires": "safety",
+   "doc": {
+    "_id": "tx-009",
+    "t": "2026-03-22T23:37:16Z",
+    "from": "TRUCK1",
+    "to": "TOWER",
+    "kind": "readback",
+    "instruction": "cross",
+    "runway": "04",
+    "at": "D",
+    "raw_transcript": "crossin' runway four at delta truck one",
+    "transcript": "Crossing runway 4 at Delta, Truck 1.",
+    "confidence": 0.9,
+    "readback": "matched",
+    "audio_ref": "clip_009.wav"
+   }
+  }
+ ]
+}
