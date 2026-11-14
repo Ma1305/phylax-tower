@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Agents } from './components/Agents';
 import { MapView } from './components/MapView';
 import { Requests } from './components/Requests';
-import { AgentPills } from './components/AgentPills';
+import { agentSummary, AgentSettings } from './components/AgentPills';
+import { useStored } from './collapse';
 import { NeedsYou } from './components/NeedsYou';
 import { Radio, type NowPlaying } from './components/Radio';
 import { isMajor, Timeline } from './components/Timeline';
@@ -113,6 +113,8 @@ export default function App() {
   const [tracks, setTracks] = useState<{ a: number; b: number; data: Tracks } | null>(null);
   const [histClips, setHistClips] = useState<Clip[]>([]);
   const [drawer, setDrawer] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [sideHidden, setSideHidden] = useStored('side.hidden');
   const [dbEvent, setDbEvent] = useState<{ n: number; coll: string; json: string; t: string; at: number } | null>(null);
 
   // ---- audio: one real <audio> element, a small queue for solo listening ----
@@ -407,6 +409,7 @@ export default function App() {
     else if (e.key === 'ArrowLeft') e.shiftKey ? stepEvent(-1) : seek(-5000);
     else if (e.key === 'ArrowRight') e.shiftKey ? stepEvent(1) : live ? undefined : seek(5000);
     else if (e.key === 'l' || e.key === 'L') goLive();
+    else if (e.key === ']') setSideHidden(!sideHidden);
     else if (/^[1-9]$/.test(e.key) && views[+e.key - 1]) setController(views[+e.key - 1]);
     else return;
     e.preventDefault();
@@ -421,6 +424,12 @@ export default function App() {
         ? { tone: 'warn', text: `${pendingShown.length} proposal${pendingShown.length > 1 ? 's' : ''} waiting for you` }
         : { tone: 'ok', text: 'All clear' };
   const wx = snap?.weather;
+  const agents = agentSummary(snap?.permissions ?? []);
+  const needCount = stopsShown.length + pendingShown.length;
+  const onAir = (snap?.transmissions ?? []).some((t) => {
+    const t0 = Date.parse(t.t);
+    return viewT >= t0 && viewT <= (t.t_end ? Date.parse(t.t_end) : t0 + 3000) + 1500;
+  });
   return (
     <div className={`app ${live ? 'mode-live' : 'mode-history'}`}>
       <header className="topbar">
@@ -454,13 +463,8 @@ export default function App() {
             );
           })}
         </div>
-        <div className="clock-block">
+        <div className="clock-block" title={wx ? `wind ${wx.wind ?? '---'} · visibility ${wx.visibility_sm ?? '--'} SM` : undefined}>
           <span className="clock mono">{hhmmss(viewT)}</span>
-          <span className="clock-sub">{wx ? `UTC · wind ${wx.wind ?? '---'} · vis ${wx.visibility_sm ?? '--'} SM` : 'UTC'}</span>
-        </div>
-        <div className="top-right">
-          <AgentPills ds={ds} permissions={snap?.permissions ?? []} by={actor} readOnly={!live} />
-          {ds.mock && <span className="pill quiet">Mock</span>}
           {live ? (
             <span className={`pill ${conn === 'open' ? 'live' : 'down'}`}>
               <span className="dot" /> {conn === 'open' ? 'LIVE' : conn === 'connecting' ? 'CONNECTING' : 'FEED LOST'}
@@ -468,6 +472,18 @@ export default function App() {
           ) : (
             <span className="pill history">HISTORY</span>
           )}
+          {ds.mock && <span className="pill quiet">Mock data</span>}
+        </div>
+        <div className="top-right">
+          <button className={`agents-chip tone-${agents.tone}`} onClick={() => setSettings(true)} title={`${agents.title}. Click for settings.`}>
+            <span className="dot" /> {agents.text}
+          </button>
+          <button className="btn" onClick={() => setSettings(true)}>
+            Settings
+          </button>
+          <button className="btn" onClick={() => setDrawer(true)}>
+            Audit log
+          </button>
         </div>
       </header>
 
@@ -482,13 +498,42 @@ export default function App() {
         </div>
       )}
 
-      <main className="main">
+      <main className={`main ${sideHidden ? 'side-hidden' : ''}`}>
         <section className="map-wrap">
           <MapView world={world} objects={objects} laneStatus={snap?.lane_status ?? []} ownedLanes={ownedLanes} flagged={flagged} smooth={live} />
           <div className={`situation tone-${situation.tone}`}>{situation.text}</div>
           {selected && selected.role !== 'supervisor' && <div className="map-filter">{selected.name} · own lanes highlighted</div>}
         </section>
-        <aside className="side">
+        <button className="side-tab" onClick={() => setSideHidden(!sideHidden)} aria-label={sideHidden ? 'Show the side panel' : 'Hide the side panel'} title={`${sideHidden ? 'Show' : 'Hide'} the side panel ( ] )`}>
+          {sideHidden ? '‹' : '›'}
+        </button>
+        {sideHidden && (
+          <aside className="rail">
+            <button className={`rail-badge ${stopsShown.length ? 'c-stop' : needCount ? 'c-warn' : ''}`} onClick={() => setSideHidden(false)} title={`Needs you: ${needCount}`}>
+              {needCount}
+            </button>
+            <span className="rail-cap">Needs</span>
+            <span className={`rail-act ${onAir ? 'on' : ''}`} title={onAir ? 'A stream is on air' : 'Streams quiet'}>
+              <i />
+              <i />
+              <i />
+            </span>
+            <span className="rail-cap">Radio</span>
+          </aside>
+        )}
+        <aside className={`side ${sideHidden ? 'hidden' : ''}`}>
+          <NeedsYou
+            ds={ds}
+            world={world}
+            stops={stopsShown}
+            pending={pendingShown}
+            decisions={snap?.decisions ?? []}
+            transmissions={snap?.transmissions ?? []}
+            actor={actor}
+            showActAs={controller === 'all'}
+            onActAs={setActAs}
+            readOnly={!live}
+          />
           <Radio
             world={world}
             streams={streams}
@@ -513,19 +558,6 @@ export default function App() {
             }}
             onEnded={onEnded}
             emptyNote={selected ? `${selected.name} owns no radio stream.` : null}
-          />
-          <NeedsYou
-            ds={ds}
-            world={world}
-            stops={stopsShown}
-            pending={pendingShown}
-            decisions={snap?.decisions ?? []}
-            transmissions={snap?.transmissions ?? []}
-            actor={actor}
-            showActAs={controller === 'all'}
-            onActAs={setActAs}
-            readOnly={!live}
-            onAudit={() => setDrawer(true)}
           />
         </aside>
       </main>
@@ -554,6 +586,21 @@ export default function App() {
         </Timeline>
       </footer>
 
+      {settings && (
+        <div className="drawer-back" onClick={() => setSettings(false)}>
+          <div className="drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Settings">
+            <header className="drawer-head">
+              <h2>Settings</h2>
+              <button className="btn" onClick={() => setSettings(false)}>
+                Close
+              </button>
+            </header>
+            <div className="drawer-body">
+              <AgentSettings ds={ds} permissions={snap?.permissions ?? []} agentState={snap?.agent_state ?? liveSnap?.agent_state ?? []} by={actor} readOnly={!live} />
+            </div>
+          </div>
+        </div>
+      )}
       {drawer && (
         <div className="drawer-back" onClick={() => setDrawer(false)}>
           <div className="drawer" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Audit log">
@@ -565,7 +612,6 @@ export default function App() {
             </header>
             <div className="drawer-body">
               <Requests ds={ds} world={world} pending={snap?.pending ?? []} decisions={snap?.decisions ?? []} controller={controller} actAs={actAs} onActAs={setActAs} readOnly={!live} />
-              <Agents ds={ds} permissions={snap?.permissions ?? []} agentState={snap?.agent_state ?? liveSnap?.agent_state ?? []} by={actor} readOnly={!live} />
             </div>
           </div>
         </div>

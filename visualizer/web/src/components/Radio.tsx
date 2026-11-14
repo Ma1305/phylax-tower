@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Decision, Stream, Transmission, World } from '../types';
 import { hhmmss, stationName } from '../util';
+import { useStored } from '../collapse';
 
 export interface NowPlaying {
   clipId: string;
@@ -107,6 +108,8 @@ function peaksFor(t: Transmission, url: ((id: string) => string) | null): Float3
 export function Radio(p: Props) {
   const [paused, setPaused] = useState(true);
   const [filter, setFilter] = useState('all');
+  const [lanesOff, setLanesOff] = useStored('streams.collapsed');
+  const [logOff, setLogOff] = useStored('log.collapsed');
   const canvases = useRef<Record<string, HTMLCanvasElement | null>>({});
   const clock = useRef<HTMLSpanElement>(null);
   const latest = useRef(p);
@@ -193,23 +196,13 @@ export function Radio(p: Props) {
   };
 
   return (
-    <section className="radio">
-      <header className="sec-head">
-        <h2>Radio</h2>
+    <section className={`radio ${logOff ? 'log-shut' : ''}`}>
+      <header className="sec-head toggle-head" onClick={() => setLanesOff(!lanesOff)} aria-expanded={!lanesOff}>
+        <i className={`chev ${lanesOff ? 'shut' : ''}`} />
+        <h2>Streams</h2>
         <span className="sec-note">last 60 s{p.blocked ? ' · the browser blocked autoplay: click a row once' : ''}</span>
-        <span className="grow" />
-        <div className="seg" role="group" aria-label="Show stream">
-          <button className={activeFilter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>
-            All
-          </button>
-          {p.streams.map((s) => (
-            <button key={s._id} className={activeFilter === s._id ? 'on' : ''} onClick={() => setFilter(s._id)}>
-              {short(s)}
-            </button>
-          ))}
-        </div>
       </header>
-      <div className="lanes">
+      <div className={`lanes ${lanesOff ? 'shut' : ''}`}>
         {p.streams.length === 0 && <div className="calm">{p.emptyNote ?? 'No streams.'}</div>}
         {p.streams.map((s) => {
           const mine = upTo.filter((t) => t.stream_id === s._id);
@@ -268,7 +261,24 @@ export function Radio(p: Props) {
           );
         })}
       </div>
-      <div className="log scroll">
+      <header className="sec-head toggle-head" onClick={() => setLogOff(!logOff)} aria-expanded={!logOff}>
+        <i className={`chev ${logOff ? 'shut' : ''}`} />
+        <h2>Log</h2>
+        <span className="grow" />
+        <span onClick={(e) => e.stopPropagation()}>
+        <div className="seg" role="group" aria-label="Show stream">
+            <button className={activeFilter === 'all' ? 'on' : ''} onClick={() => setFilter('all')}>
+              All
+            </button>
+            {p.streams.map((s) => (
+              <button key={s._id} className={activeFilter === s._id ? 'on' : ''} onClick={() => setFilter(s._id)}>
+                {short(s)}
+              </button>
+            ))}
+          </div>
+        </span>
+      </header>
+      <div className={`log scroll ${logOff ? 'shut' : ''}`}>
         {lines.length === 0 && p.streams.length > 0 && <div className="calm">{p.loading ? 'Loading transmissions…' : p.live ? 'No transmissions yet.' : 'Nothing had been said at this time.'}</div>}
         {lines.map((t) => {
           const playing = p.nowPlaying?.clipId === t.clip_id && !!t.clip_id;
