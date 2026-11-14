@@ -17,7 +17,8 @@ LEVEL_INFO = {
     "clean": "TTS output, 22.05 kHz mono",
     "mild": "band-pass 300-3000 Hz, 3:1 compression, light pink noise (~26 dB SNR), squelch, 8 kHz",
     "medium": "band-pass 350-2800 Hz, 6:1 compression, pink noise (~18 dB SNR), squelch, 8 kHz",
-    "brutal": "band-pass 450-2400 Hz, 12:1 compression + overdrive, heavy pink noise (~11 dB SNR), loud squelch, 8 kHz",
+    "brutal": "band-pass 450-2400 Hz, 12:1 compression + overdrive, heavy pink noise "
+              "(~11 dB SNR), loud squelch, 8 kHz",
 }
 
 
@@ -37,7 +38,8 @@ def main() -> int:
     entries = [{"id": t["id"], "kind": "transmission", "speaker": t["speaker"],
                 "offset_s": t["offset_s"], "text": t["text"]} for t in transmissions()]
     entries.append({"id": overlap_id, "kind": "overlap",
-                    "stepped_on": [os.environ.get("OVER_A", "t06"), os.environ.get("OVER_B", "t07")],
+                    "stepped_on": [os.environ.get("OVER_A", "t06"),
+                                   os.environ.get("OVER_B", "t07")],
                     "second_starts_after_ms": int(os.environ.get("OVER_DELAY_MS", "1200"))})
     missing = []
     for e in entries:

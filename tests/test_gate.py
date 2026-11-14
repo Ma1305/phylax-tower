@@ -112,7 +112,7 @@ def test_tier_never_rejected(db, gate):
         d = _wait_decision(db, _insert(db, "weather", "close_runway"))
         assert (d["outcome"], d["rule"]) == ("rejected", "tier_never")
     finally:
-        db.permissions.update_one({"agent": "weather"}, {"$set": {"tier": "needs_approval"}})
+        db.permissions.update_one({"agent": "weather"}, {"$set": {"tier": "autonomous"}})
 
 
 def test_identity_comes_from_collection(db, gate):

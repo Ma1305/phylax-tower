@@ -35,6 +35,8 @@ COLLECTIONS = [
     "decisions",
     *INTENT_COLLECTIONS,
     "gate_state",
+    "metar",
+    "security_events",
 ]
 
 # ------------------------------------------------------------------ schema helpers
@@ -147,8 +149,38 @@ def decisions_schema() -> dict:
     }
 
 
+def metar_schema() -> dict:
+    """$jsonSchema for metar (mirrors contracts.Metar)."""
+    return {
+        "bsonType": "object",
+        "required": ["t", "visibility_sm", "wind"],
+        "properties": {
+            "t": DATE,
+            "visibility_sm": {"bsonType": ["double", "int"], "minimum": 0},
+            "wind": STR,
+        },
+    }
+
+
+def security_events_schema() -> dict:
+    """$jsonSchema for security_events (mirrors contracts.SecurityEvent; insert-only)."""
+    return {
+        "bsonType": "object",
+        "required": ["t", "agent", "attempted", "error"],
+        "properties": {
+            "t": DATE,
+            "agent": _enum(c.AgentName),
+            "attempted": STR,
+            "error_code": {"bsonType": ["int", "long", "null"]},
+            "error": STR,
+        },
+    }
+
+
 VALIDATORS: dict[str, dict] = {
     "transmissions": transmissions_schema(),
+    "metar": metar_schema(),
+    "security_events": security_events_schema(),
     "decisions": decisions_schema(),
     **{name: intents_schema(agent) for name, agent in INTENT_COLLECTIONS.items()},
 }
@@ -159,7 +191,7 @@ PERMISSION_SEED: dict[str, str] = {
     "safety": "autonomous",
     "listener": "autonomous",
     "procedures": "needs_approval",
-    "weather": "needs_approval",
+    "weather": "autonomous",  # demo: weather may switch to the low-visibility rule set itself
     "system": "autonomous",
 }
 
@@ -215,6 +247,8 @@ def setup(db: Database, log=print) -> None:
     db.rules.create_index([("version", ASCENDING)], unique=True, name="uniq_version")
     db.transmissions.create_index([("t", DESCENDING)], name="t_desc")
     db.decisions.create_index([("t", DESCENDING)], name="t_desc")
+    db.security_events.create_index([("t", DESCENDING)], name="t_desc")
+    db.metar.create_index([("t", DESCENDING)], name="t_desc")
     log("  indexes: ok")
 
     now = datetime.now(UTC)
@@ -223,6 +257,12 @@ def setup(db: Database, log=print) -> None:
                            changed_at=now)
         db.permissions.update_one({"agent": agent}, {"$setOnInsert": c.to_mongo(doc)},
                                   upsert=True)
+    # Older databases were seeded with weather=needs_approval. Move it to the demo tier,
+    # but only if no controller has touched it since setup.
+    db.permissions.update_one(
+        {"agent": "weather", "by": "setup_script", "tier": {"$ne": PERMISSION_SEED["weather"]}},
+        {"$set": {"tier": PERMISSION_SEED["weather"]}},
+    )
     log(f"  permissions: {len(PERMISSION_SEED)} seeded (existing switches kept)")
 
     for rs in RULE_SETS:

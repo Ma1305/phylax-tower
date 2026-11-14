@@ -33,3 +33,6 @@ skills-lock.json
 # Generated radio audio (regenerate with scripts/audio/); only the manifest is committed
 scenarios/*/audio/*
 !scenarios/*/audio/manifest.json
+
+# Process logs (scripts/demo_check.sh, demo scripts)
+logs/

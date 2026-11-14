@@ -36,3 +36,20 @@ and an Atlas cluster you can reach.
 `holdshort/contracts.py` is the single source of truth for documents; the validators
 in `scripts/setup_atlas.py` read their enums from it. `SETUP_STATUS.md` covers the
 VM setup checks in `scripts/verify/`.
+
+## Agents and scenario runner
+
+Each agent is its own process. Agents never act: they only insert intents into
+`intents_<agent>`; the gate (`python -m holdshort.gate`) decides.
+
+    uv run python -m holdshort.agents.safety_agent       # transmissions -> stop intents
+    uv run python -m holdshort.agents.procedures_agent   # executed crossing stop -> proposal
+    uv run python -m holdshort.agents.weather_agent      # METAR < 1 sm -> set_rule_set low_vis_v1
+    uv run python -m holdshort.agents.procedures_agent rogue   # blocked writes -> security_events
+
+    uv run python -m holdshort.scenario.runner reset     # clears flight_state + runway_status only
+    uv run python -m holdshort.scenario.runner start --safety on --speed 5 --mode text
+
+`scripts/demo_check.sh` runs the whole thing (gate + agents, scenario with safety off
+then on, rogue agent) in a throwaway `<MONGODB_DB>_demo_check` database and asserts
+the demo outcomes. Logs go to `logs/demo_check/`.
