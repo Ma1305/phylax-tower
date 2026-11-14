@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from holdshort.listener import callsigns
 from holdshort.listener.normalize import PHONETIC, UNKNOWN, normalize_callsign
 
 _NUM = r"(?:zero|one|two|three|tree|four|fower|five|six|seven|eight|nine|niner|\d+)"
@@ -55,15 +56,16 @@ def label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
         return None
     aliases = context.get("aliases")
     intelligible = not _UNCLEAR_RE.search(raw.lower())
-    plain = re.sub(r"\s+", " ", text.replace(".", " ").replace(",", " , ")).strip(" ,")
+    plain = re.sub(r"\s+", " ", text.replace(".", " , ").replace(",", " , ")).strip(" ,")
+    plain = re.sub(r"(?: ,)+", " ,", plain)
 
-    spans = [(m.start(), normalize_callsign(m.group(0), aliases))
-             for m in _CALLSIGN_RE.finditer(plain)]
+    live = context.get("live") or {}
+    found = callsigns.find(plain, live, aliases)
+    spans = [(s, cs) for s, _, cs in found]
+    unresolved = any(cs == UNKNOWN for _, cs in spans)
     named = [cs for _, cs in spans if cs != UNKNOWN]
     first_at_start = bool(spans) and spans[0][0] == 0
-    last_at_end = bool(spans) and plain.rstrip(" ,").endswith(
-        _CALLSIGN_RE.findall(plain)[-1]
-    )
+    last_at_end = bool(found) and found[-1][1] >= len(plain.rstrip(" ,"))
 
     speaker = normalize_callsign(context.get("speaker"), aliases) if context.get(
         "speaker") else None
@@ -93,7 +95,8 @@ def label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
 
     if re.search(r"\bstop\b", plain):
         kind = "stop"
-        to = others[0] if others and first_at_start else UNKNOWN
+        # a stop that names a callsign anywhere is addressed to it
+        to = next((cs for cs in others if cs not in STATIONS), UNKNOWN)
     elif re.search(r"\brequest", plain):
         kind = "request"
     elif sender in STATIONS and instruction != "none":
@@ -110,5 +113,7 @@ def label(text: str, context: dict[str, Any]) -> dict[str, Any] | None:
         kind = "other"
     if kind in ("other", "stop"):
         instruction, runway, at = "none", None, None
-    return {"intelligible": intelligible, "from": sender, "to": to, "kind": kind,
+    names_nobody = not any(cs not in STATIONS for _, cs in spans)
+    return {"unresolved": unresolved, "names_nobody": names_nobody,
+            "intelligible": intelligible, "from": sender, "to": to, "kind": kind,
             "instruction": instruction, "runway": runway, "at": at}
