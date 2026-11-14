@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Hold Short tower: one image, `python -m holdshort.serve` runs every process
+# Phylax Tower tower: one image, `python -m holdshort.serve` runs every process
 # (api + workers). Build from the repo root:
 #   docker build -f deploy/backend.Dockerfile -t holdshort-tower .
 FROM python:3.12-slim

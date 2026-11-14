@@ -1,4 +1,4 @@
-# Hold Short v2: contracts
+# Phylax Tower v2: contracts
 
 The single source of truth for collection shapes, enums and the `/control/*` and `/viz/*`
 APIs. `/ingest/*` is defined in `SIMULATOR_CONTRACT.md`. `holdshort/contracts.py` (Pydantic)
@@ -9,7 +9,7 @@ Conventions:
 - Timestamps: timezone-aware UTC, stored as BSON dates, wall-clock. JSON: ISO 8601 with `Z`.
 - Positions: GeoJSON `{"type": "Point", "coordinates": [lon, lat]}`.
 - Callsigns: `^[A-Z0-9]+$` (AC8646, TRUCK1). Controller stations on the radio: `TOWER`,
-  `GROUND`, `OPS` (from `streams.station`). Unknown speaker: `UNKNOWN`. Hold Short itself:
+  `GROUND`, `OPS` (from `streams.station`). Unknown speaker: `UNKNOWN`. Phylax itself:
   `HOLDSHORT`.
 - "insert-only" = never updated or deleted by anyone.
 
@@ -181,7 +181,7 @@ transcript, confidence 0..1, readback: Readback,
 verified: bool           false whenever confidence < 0.8
 flag: str|null           e.g. "unclear - say again", "no callsign", "confusable: AC8464"
 clip_id, audio_id        ObjectId|null
-synthetic: bool          true when Hold Short spoke it
+synthetic: bool          true when Phylax Tower spoke it
 decision_id: ObjectId|null   the decision that produced a synthetic call
 ```
 

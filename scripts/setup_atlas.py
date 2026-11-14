@@ -1,4 +1,4 @@
-"""Create (or update) the Hold Short v2 collections, validators, indexes and seed data.
+"""Create (or update) the Phylax Tower v2 collections, validators, indexes and seed data.
 
 Idempotent: run it as often as you like. Existing collections get their validator replaced
 with collMod; indexes are created if missing; seed documents are upserted. Seeding never

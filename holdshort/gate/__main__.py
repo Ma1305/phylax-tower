@@ -14,7 +14,7 @@ from holdshort.gate import Gate, GateError, approve, reject, revoke, set_permiss
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="python -m holdshort.gate", description="Hold Short action gate"
+        prog="python -m holdshort.gate", description="Phylax Tower action gate"
     )
     parser.add_argument("--db", default=None, help="database (default: MONGODB_DB)")
     sub = parser.add_subparsers(dest="cmd")

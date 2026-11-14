@@ -1,4 +1,4 @@
-"""Hold Short tower API (v2): a slim FastAPI factory that includes every router module.
+"""Phylax Tower tower API (v2): a slim FastAPI factory that includes every router module.
 
     uv run uvicorn holdshort.api.app:app --port 8000
 
@@ -90,7 +90,7 @@ def create_app(db: Any = None, *, routers_package: str = ROUTERS_PACKAGE) -> Fas
             if client is not None:
                 client.close()
 
-    app = FastAPI(title="Hold Short API", lifespan=lifespan)
+    app = FastAPI(title="Phylax Tower API", lifespan=lifespan)
     app.state.db = db
     app.add_middleware(
         CORSMiddleware,

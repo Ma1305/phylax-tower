@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Hold Short visualizer web app: Vite build, served by nginx with SPA fallback.
+# Phylax Tower visualizer web app: Vite build, served by nginx with SPA fallback.
 #   docker build -f deploy/viz-web.Dockerfile \
 #     --build-arg VITE_VIZ_API=http://localhost:8100 \
 #     --build-arg VITE_TOWER_API=http://localhost:8000 -t holdshort-viz-web .

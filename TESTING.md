@@ -1,4 +1,4 @@
-# Testing Hold Short v2 by hand
+# Testing Phylax Tower v2 by hand
 
 Three systems run side by side: the **tower** (agents, gate, speaker; port 8000), the
 **visualizer API** (read-only; port 8100) and the **visualizer web app** (port 5180). The
@@ -54,11 +54,11 @@ Run `scripts/feed.sh incident` (75 seconds).
 | 0 s | **Approach · 7 nm** above the map | AC8646 on the final for runway 04, one mile out, descending. The "Airborne" box lists it with distance, altitude and speed. Press **Airfield** to go back. |
 | ~10 s | nothing | Tower clears AC8646 to land: three lines appear in the **Tower** stream on the right, runway 04/22 turns **RESERVED**. TRUCK1 waits on taxiway Delta (**OCCUPIED**). An unclear call shows in **Airport Ops** with an "unclear - say again" tag. |
 | ~25 s | nothing | Ground clears TRUCK1 to cross runway 04 at Delta. Runway 04/22 turns **CONFLICT** with the reason under its label. |
-| ~30 s | nothing | **The stop is autonomous: you are told, not asked.** A red **STOP IN EFFECT** bar appears at the top at once: "issued by Hold Short · not a request", the exact call ("Truck one, STOP. Hold short runway zero four."), target TRUCK1, rule `no_crossing_during_active_landing`, "Told Local (Tower)" and one button, **Lift stop**. The same call appears in the **Ground** stream marked **◆ HOLD SHORT · OUTBOUND** (Hold Short's own voice). TRUCK1 stops at the hold line and stays on taxiway D; AC8646 lands. |
+| ~30 s | nothing | **The stop is autonomous: you are told, not asked.** A red **STOP IN EFFECT** bar appears at the top at once: "issued by Phylax · not a request", the exact call ("Truck one, STOP. Hold short runway zero four."), target TRUCK1, rule `no_crossing_during_active_landing`, "Told Local (Tower)" and one button, **Lift stop**. The same call appears in the **Ground** stream marked **◆ PHYLAX · OUTBOUND** (Phylax's own voice). TRUCK1 stops at the hold line and stays on taxiway D; AC8646 lands. |
 | any time | **▶** on a line in the right bar | The clip plays in the player at the bottom of the bar. Pick **TOWER / GROUND / OPS** at the top of the bar to solo a stream: its new calls then play by themselves. |
 | after the stop | **Local (Tower)** in "View as" | Only the Tower stream, the two runways highlighted, the stop bar and one request under **Awaiting approval**: the procedures agent's **PROPOSED INSTRUCTION** ("Truck one, hold short of runway zero four, expect to cross after the landing ... has vacated"), routed to Local (Tower) because Local owns runway 04. **Ground** shows two streams and neither the stop nor the request. |
 | | **All**, then "act as" **Ground**, **✓ Approve** | A red line under the request: `403 · not_lane_owner: ctl_ground may not approve decision ... (routed to ctl_local)`. The tower also writes a `security_events` document. |
-| | "act as" **Local (Tower)**, **✓ Approve** | The request disappears, the instruction is spoken: a new **◆ HOLD SHORT · OUTBOUND** line in the Ground stream with audio. The decision log shows it as **✓ EXECUTED**, approved by Local (Tower). |
+| | "act as" **Local (Tower)**, **✓ Approve** | The request disappears, the instruction is spoken: a new **◆ PHYLAX · OUTBOUND** line in the Ground stream with audio. The decision log shows it as **✓ EXECUTED**, approved by Local (Tower). |
 | | **Lift stop** on the red bar (as Local or Supervisor) | The bar disappears; the log gets **↺ STOP LIFTED**, lifted by Local (Tower). |
 
 The **Decision log** (middle column) lists every gate decision, newest first: executed,
@@ -138,7 +138,7 @@ HTTP, as described in [`docs/v2/SIMULATOR_CONTRACT.md`](docs/v2/SIMULATOR_CONTRA
 - `POST /ingest/positions` about once a second, `POST /ingest/audio` (one clip per radio call,
   tagged with its `stream_id`) or `POST /ingest/transcripts` for text-only calls,
   `POST /ingest/weather`;
-- `GET /ingest/outbound?tower_id=LGA&since=ISO` about once a second to hear what Hold Short
+- `GET /ingest/outbound?tower_id=LGA&since=ISO` about once a second to hear what Phylax Tower
   said: a target that receives `stop` should stop moving. Deduplicate by `decision_id`, and
   keep `since` a few seconds behind the returned `now`: a call's `t` is when it was decided,
   which can be slightly earlier than the moment it becomes visible.

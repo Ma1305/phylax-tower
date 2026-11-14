@@ -1,6 +1,7 @@
 {
-  "name": "holdshort-visualizer-web",
+  "name": "phylax-tower-visualizer",
   "private": true,
+  "description": "Phylax Tower visualizer: the airfield map, radio streams and decision log of the tower",
   "version": "2.0.0",
   "type": "module",
   "scripts": {

@@ -1,1 +1,1 @@
-"""Hold Short: auditable tower-radio agents on MongoDB Atlas."""
+"""Phylax Tower: auditable tower-radio agents on MongoDB Atlas."""

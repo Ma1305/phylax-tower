@@ -22,3 +22,9 @@ export function activeStops(decisions: Decision[], viewT: number): Decision[] {
     .filter((d) => viewT - Date.parse(d.t) < STOP_SHOWN_MS)
     .sort((a, b) => b.t.localeCompare(a.t));
 }
+
+/** Display name for a station id. The data keeps "HOLDSHORT" (contracts); people see "PHYLAX". */
+const STATION_NAMES: Record<string, string> = { HOLDSHORT: 'PHYLAX' };
+export function stationName(id: string): string {
+  return STATION_NAMES[id] ?? id;
+}

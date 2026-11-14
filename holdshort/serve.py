@@ -192,6 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     if not children:
         say("serve", "nothing to run")
         return 1
+    say("serve", f"Phylax Tower: starting {len(children)} process(es) on port {port}")
     return supervise(children)
 
 

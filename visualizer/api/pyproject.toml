@@ -1,7 +1,7 @@
 [project]
 name = "holdshort-viz-api"
 version = "0.2.0"
-description = "Hold Short visualizer: read-only API over the tower's MongoDB records"
+description = "Phylax Tower visualizer: read-only API over the tower's MongoDB records"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

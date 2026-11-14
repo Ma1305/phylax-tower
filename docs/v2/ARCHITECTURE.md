@@ -1,4 +1,4 @@
-# Hold Short v2: architecture
+# Phylax Tower v2: architecture
 
 Three separate systems around one MongoDB Atlas database. Details: `PLAN.md` (design),
 `CONTRACTS.md` (data and APIs), `SIMULATOR_CONTRACT.md` (how data enters).
@@ -33,7 +33,7 @@ flowchart TB
   CTRL(["<b>Controllers</b><br/>each owns lanes and streams"])
 
   SIM -->|HTTP /ingest| API
-  SPK -.->|what Hold Short said| SIM
+  SPK -.->|what Phylax Tower said| SIM
   TOWER <--> DB
   DB --> VAPI
   CTRL --> WEB

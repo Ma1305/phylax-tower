@@ -1,7 +1,7 @@
-# Deploying Hold Short
+# Deploying Phylax Tower
 
-Three pieces: the **tower** (`holdshort-tower`, every process in one container via
-`python -m holdshort.serve`), the **visualizer API** (`holdshort-viz-api`, read-only) and the
+Three pieces: the **tower** (`phylax-tower`, every process in one container via
+`python -m holdshort.serve`), the **visualizer API** (`phylax-viz-api`, read-only) and the
 **visualizer web app** (static, Firebase Hosting). The database is MongoDB Atlas; there is no
 database container anywhere.
 

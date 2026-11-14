@@ -1,4 +1,4 @@
-# Hold Short: setup status (2026-11-14)
+# Phylax Tower: setup status (2026-11-14)
 
 Status of the section 6 checklist in the setup doc on the shared VM. Run every check again with:
 

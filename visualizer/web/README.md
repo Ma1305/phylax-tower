@@ -1,4 +1,4 @@
-# Hold Short visualizer: web app
+# Phylax Tower visualizer: web app
 
 The screen controllers look at. A separate system from the tower: it reads everything from the
 visualizer API (`/viz/*`, see `docs/v2/CONTRACTS.md`) and sends controller actions to the
@@ -14,7 +14,7 @@ tower's `/control/*` API. It never talks to the database.
   Atlas identity (generated user / static / shared connection) when `agent_state` has it.
 - **Top, only while a stop is in effect**: stops are autonomous by default, so an executed stop is
   an alert the owning controller is told about, not asked about: the exact call, rule, target,
-  lane and a **Lift stop** action (`POST /control/revoke`). Hold Short's own outbound call is
+  lane and a **Lift stop** action (`POST /control/revoke`). Phylax's own outbound call is
   marked in its stream. Only proposals (and stops from a `needs_approval` agent) wait for approval.
 - **Right**: one card per radio stream with its transcript and audio. Pick a stream to solo it:
   its new clips play as they arrive; with "All" nothing plays by itself.
