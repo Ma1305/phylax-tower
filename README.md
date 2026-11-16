@@ -8,8 +8,12 @@ afterwards. The demo replays the 22 March 2026 runway 4 collision at LaGuardia, 
 the NTSB preliminary report: a fire truck is cleared to cross the runway 20 seconds before a
 landing jet reaches it, and the tower has about 13 seconds to get a stop call to the truck.
 
-- **Live demo:** https://phylax-tower.web.app
-- **Demo video:** the 60-second submission video is rendered from [`video/`](video/) (a Remotion project).
+- **Presentation video:** [`docs/presentation.mp4`](docs/presentation.mp4)
+
+> **Status:** Phylax Tower was built at a hackathon in November 2026. The hosted version (the
+> web app on Firebase Hosting and the APIs on Cloud Run) has since been taken down, so the old
+> live link no longer works. To try it, run it locally with the [Quick start](#quick-start), or
+> open the controller's screen with no backend at all in mock mode (see the end of that section).
 
 ![The controller's screen during a runway incursion](docs/v2/screens/live-stop-in-effect.png)
 
@@ -88,7 +92,6 @@ takes real actions.
 | [`tools/`](tools/) | A small stand-in feed used by the tests and `scripts/feed.sh` |
 | [`tests/`](tests/) | The tower's tests (they need an Atlas connection string) |
 | [`deploy/`](deploy/) | Dockerfiles, Compose file, Cloud Run and Firebase Hosting scripts |
-| [`video/`](video/) | The demo video project |
 | [`docs/`](docs/) | Design documents: architecture, plan, data contracts, the ingest API |
 | [`TESTING.md`](TESTING.md) | A click-through of the running system and the automated checks |
 
@@ -128,7 +131,7 @@ To see the screen with no backend at all, run `npm ci && npm run dev -- --port 5
 | Gemini 4 Argon on Vertex AI | Drafting the procedures agent's proposals and the audit agent's narrative, and labelling radio calls the rules cannot parse. |
 | ElevenLabs | Speech-to-text and voice isolation on incoming radio clips; the spoken stop calls and approved instructions. |
 | FastAPI, React and Vite | The tower and visualizer APIs; the web app. |
-| Cloud Run and Firebase Hosting | Hosting: the two APIs on Cloud Run (always-on workers, WebSockets), the web app on Firebase Hosting. |
+| Cloud Run and Firebase Hosting | Hosting during the hackathon (now taken down): the two APIs on Cloud Run (always-on workers, WebSockets), the web app on Firebase Hosting. |
 
 ## Team
 
