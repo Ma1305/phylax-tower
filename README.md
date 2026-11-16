@@ -139,6 +139,10 @@ To see the screen with no backend at all, run `npm ci && npm run dev -- --port 5
 | Sahand Samadirad | [@sahandsamadirad](https://github.com/sahandsamadirad) |
 | Amirali Akef | [@AmiraliAkef](https://github.com/AmiraliAkef) |
 
+## License
+
+Copyright (c) 2026 the team above. All rights reserved. See [LICENSE](LICENSE): the code may be viewed, but not used, copied or modified without written permission.
+
 ## Limits
 
 - Controllers have no login: the web app sends the chosen `controller_id` with each action.
