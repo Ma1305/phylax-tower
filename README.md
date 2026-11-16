@@ -132,12 +132,12 @@ To see the screen with no backend at all, run `npm ci && npm run dev -- --port 5
 
 ## Team
 
-| Name | GitHub | Built |
-|------|--------|-------|
-| Mani Fatemi | [@Ma1305](https://github.com/Ma1305) | Traffic simulator, design docs, verification scripts, integration of the full build |
-| Sahand Samadirad | [@sahandsamadirad](https://github.com/sahandsamadirad) | Radio listener and speech-to-text pipeline, safety agent, Gemini model layer, outbound speaker |
-| Ariyan Azami | [@AriyanAzami](https://github.com/AriyanAzami) | Demo video (Remotion), Docker, Cloud Run and Firebase deployment, visualizer integration and end-to-end tests |
-| Amirali Akef | [@AmiraliAkef](https://github.com/AmiraliAkef) | Visualizer UI: airport map, radio streams, timeline and controls; agent identity and audit |
+| Name | GitHub |
+|------|--------|
+| Mani Fatemi | [@Ma1305](https://github.com/Ma1305) |
+| Sahand Samadirad | [@sahandsamadirad](https://github.com/sahandsamadirad) |
+| Ariyan Azami | [@AriyanAzami](https://github.com/AriyanAzami) |
+| Amirali Akef | [@AmiraliAkef](https://github.com/AmiraliAkef) |
 
 ## Limits
 
