@@ -135,8 +135,8 @@ To see the screen with no backend at all, run `npm ci && npm run dev -- --port 5
 | Name | GitHub |
 |------|--------|
 | Mani Fatemi | [@Ma1305](https://github.com/Ma1305) |
-| Sahand Samadirad | [@sahandsamadirad](https://github.com/sahandsamadirad) |
 | Ariyan Azami | [@AriyanAzami](https://github.com/AriyanAzami) |
+| Sahand Samadirad | [@sahandsamadirad](https://github.com/sahandsamadirad) |
 | Amirali Akef | [@AmiraliAkef](https://github.com/AmiraliAkef) |
 
 ## Limits
